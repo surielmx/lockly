@@ -51,7 +51,10 @@ fun MainScreen(
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
-            ModalDrawerSheet {
+            ModalDrawerSheet(
+                drawerContainerColor = MaterialTheme.colorScheme.surface,
+                drawerContentColor = MaterialTheme.colorScheme.onSurface
+            ) {
                 Text("Lockly", modifier = Modifier.padding(16.dp))
                 Spacer(Modifier.height(16.dp))
                 NavigationDrawerItem(
@@ -67,6 +70,11 @@ fun MainScreen(
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
             topBar = {
                 TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onSurface
+                    ),
                     title = { Text(navItems[selectedTab].title) },
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
@@ -124,14 +132,14 @@ fun MainScreen(
             title = { Text("Cifrar archivo") },
             text = { Text("¿Deseas cifrar este archivo?") },
             confirmButton = {
-                Button(onClick = {
+                TextButton(onClick = {
                     val file = fileToEncrypt!!
                     onEncryptFile(file.toUri(), file.name)
                     showEncryptDialog = false
                 }) { Text("Cifrar") }
             },
             dismissButton = {
-                Button(onClick = { showEncryptDialog = false }) { Text("Cancelar") }
+                TextButton(onClick = { showEncryptDialog = false }) { Text("Cancelar") }
             }
         )
     }
@@ -151,7 +159,7 @@ fun MainScreen(
                 }
             },
             confirmButton = {
-                Button(
+                TextButton(
                     onClick = {
                         onUseTempFile(fileToUse!!)
                         showUseDialog = false
@@ -160,7 +168,7 @@ fun MainScreen(
                 ) { Text("Usar") }
             },
             dismissButton = {
-                Button(
+                TextButton(
                     onClick = { showUseDialog = false },
                     enabled = !isLoading
                 ) { Text("Cancelar") }
@@ -174,13 +182,13 @@ fun MainScreen(
             title = { Text("Eliminar archivo temporal") },
             text = { Text("¿Deseas eliminar el archivo temporal?") },
             confirmButton = {
-                Button(onClick = {
+                TextButton(onClick = {
                     onDeleteTempFile(fileToDelete!!)
                     showDeleteDialog = false
                 }) { Text("Eliminar") }
             },
             dismissButton = {
-                Button(onClick = { showDeleteDialog = false }) { Text("Cancelar") }
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancelar") }
             }
         )
     }

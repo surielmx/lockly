@@ -12,33 +12,35 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
-    primary = androidx.compose.ui.graphics.Color(0xFF1565C0), // Azul oscuro
-    onPrimary = androidx.compose.ui.graphics.Color.White,
-    secondary = androidx.compose.ui.graphics.Color(0xFF263238), // Gris oscuro
-    onSecondary = androidx.compose.ui.graphics.Color.White,
-    tertiary = androidx.compose.ui.graphics.Color(0xFF00B8D4), // Cyan
-    onTertiary = androidx.compose.ui.graphics.Color.White,
-    background = androidx.compose.ui.graphics.Color(0xFF121212),
-    onBackground = androidx.compose.ui.graphics.Color(0xFFE0E0E0),
-    surface = androidx.compose.ui.graphics.Color(0xFF1E1E1E),
-    onSurface = androidx.compose.ui.graphics.Color(0xFFE0E0E0),
-    error = androidx.compose.ui.graphics.Color(0xFFD32F2F),
-    onError = androidx.compose.ui.graphics.Color.White
+    primary = Cyan80,
+    onPrimary = Blue80,
+    secondary = Green80,
+    onSecondary = Blue80,
+    tertiary = Orange80,
+    onTertiary = Blue80,
+    background = Blue80,
+    onBackground = OffWhite,
+    surface = BlueGrey80,
+    onSurface = OffWhite,
+    secondaryContainer = Cyan80,
+    onSecondaryContainer = Blue80,
+    tertiaryContainer = DarkCyan80
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = androidx.compose.ui.graphics.Color(0xFF1976D2), // Azul
-    onPrimary = androidx.compose.ui.graphics.Color.White,
-    secondary = androidx.compose.ui.graphics.Color(0xFF455A64), // Gris
-    onSecondary = androidx.compose.ui.graphics.Color.White,
-    tertiary = androidx.compose.ui.graphics.Color(0xFF00B8D4), // Cyan
-    onTertiary = androidx.compose.ui.graphics.Color.White,
-    background = androidx.compose.ui.graphics.Color(0xFFF5F5F5),
-    onBackground = androidx.compose.ui.graphics.Color(0xFF212121),
-    surface = androidx.compose.ui.graphics.Color(0xFFFFFFFF),
-    onSurface = androidx.compose.ui.graphics.Color(0xFF212121),
-    error = androidx.compose.ui.graphics.Color(0xFFD32F2F),
-    onError = androidx.compose.ui.graphics.Color.White
+    primary = Cyan40,
+    onPrimary = BlueGrey40,
+    secondary = Green40,
+    onSecondary = BlueGrey40,
+    tertiary = Orange40,
+    onTertiary = BlueGrey40,
+    background = Blue40,
+    onBackground = Grey40,
+    surface = BlueGrey40,
+    onSurface = Grey40,
+    secondaryContainer = Cyan40,
+    onSecondaryContainer = BlueGrey40,
+    tertiaryContainer = DarkCyan40
 )
 
 @Composable

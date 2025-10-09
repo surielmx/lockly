@@ -199,7 +199,7 @@ fun AuthScreen(
                         },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
                     ) {
                         Text("Usar biometría", color = Color.White, fontWeight = FontWeight.Bold)
                     }
