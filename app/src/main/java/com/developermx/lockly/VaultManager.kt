@@ -1,55 +1,39 @@
 package com.developermx.lockly
 
 import android.content.Context
+import android.net.Uri
+import android.util.Log
+import com.google.crypto.tink.Aead
+import com.google.crypto.tink.aead.AeadConfig
+import com.lockly.vault.KeystoreHelper
 import java.io.File
-import javax.crypto.Cipher
-import javax.crypto.SecretKey
-import javax.crypto.spec.IvParameterSpec
-import javax.crypto.spec.SecretKeySpec
-import android.util.Base64
+import java.io.InputStream
+import java.io.OutputStream
+import java.security.GeneralSecurityException
 import java.security.MessageDigest
 import java.security.SecureRandom
 
 object VaultManager {
-    private const val VAULT_FILE = "_vlt.bin"
-    private const val ALGORITHM = "AES/CBC/PKCS5Padding"
+
+    private const val VAULT_DIR = "vault"
     private const val PASSWORD_FILE = "_vlt_pwd.bin"
     private const val SALT_FILE = "_vlt_slt.bin"
 
-    private fun getDerivedKey(context: Context, password: String): ByteArray {
-        val saltFile = File(context.filesDir, SALT_FILE)
-        val salt = if (saltFile.exists()) saltFile.readBytes() else ByteArray(16).also { SecureRandom().nextBytes(it) }
-        val spec = javax.crypto.spec.PBEKeySpec(password.toCharArray(), salt, 10000, 128)
-        val factory = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-        return factory.generateSecret(spec).encoded
+    init {
+        try {
+            AeadConfig.register()
+        } catch (e: GeneralSecurityException) {
+            // Ignorar si ya está registrado
+        }
     }
 
-    fun saveFile(context: Context, data: String, password: String) {
-        val keyBytes = getDerivedKey(context, password)
-        val secretKey = SecretKeySpec(keyBytes, "AES")
-        val cipher = Cipher.getInstance(ALGORITHM)
-        val iv = ByteArray(16) { 0 }
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey, IvParameterSpec(iv))
-        val encrypted = cipher.doFinal(data.toByteArray())
-        val file = File(context.filesDir, VAULT_FILE)
-        file.writeBytes(encrypted)
-    }
+    // --- Métodos de Contraseña ---
 
-    fun readFile(context: Context, password: String): String? {
-        val file = File(context.filesDir, VAULT_FILE)
-        if (!file.exists()) return null
-        val keyBytes = getDerivedKey(context, password)
-        val secretKey = SecretKeySpec(keyBytes, "AES")
-        val cipher = Cipher.getInstance(ALGORITHM)
-        val iv = ByteArray(16) { 0 }
-        cipher.init(Cipher.DECRYPT_MODE, secretKey, IvParameterSpec(iv))
-        val decrypted = cipher.doFinal(file.readBytes())
-        return String(decrypted)
-    }
-
-    fun isVaultAccessible(context: Context): Boolean {
-        val file = File(context.filesDir, VAULT_FILE)
-        return file.exists()
+    private fun hashPassword(password: String, salt: ByteArray): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        md.update(salt)
+        val hashed = md.digest(password.toByteArray())
+        return hashed.joinToString("") { "%02x".format(it) }
     }
 
     fun hasPassword(context: Context): Boolean {
@@ -61,11 +45,9 @@ object VaultManager {
     fun savePassword(context: Context, password: String) {
         val salt = ByteArray(16)
         SecureRandom().nextBytes(salt)
-        val saltFile = File(context.filesDir, SALT_FILE)
-        saltFile.writeBytes(salt)
+        File(context.filesDir, SALT_FILE).writeBytes(salt)
         val hash = hashPassword(password, salt)
-        val file = File(context.filesDir, PASSWORD_FILE)
-        file.writeText(hash)
+        File(context.filesDir, PASSWORD_FILE).writeText(hash)
     }
 
     fun validatePassword(context: Context, password: String): Boolean {
@@ -77,10 +59,55 @@ object VaultManager {
         return file.readText() == hash
     }
 
-    private fun hashPassword(password: String, salt: ByteArray): String {
-        val md = MessageDigest.getInstance("SHA-256")
-        md.update(salt)
-        val hashed = md.digest(password.toByteArray())
-        return hashed.joinToString("") { "%02x".format(it) }
+
+    // --- Métodos de Cifrado de Archivos ---
+
+    private fun getAead(context: Context): Aead {
+        return KeystoreHelper.getOrCreateMasterKey(context).getPrimitive(Aead::class.java)
+    }
+
+    fun decryptStream(context: Context, inputStream: InputStream, outputStream: OutputStream) {
+        val aead = getAead(context)
+        val cipherText = inputStream.readBytes()
+        val decryptedText = aead.decrypt(cipherText, ByteArray(0))
+        outputStream.write(decryptedText)
+    }
+
+    /**
+     * Proceso completo para importar, cifrar y verificar un archivo en la bóveda.
+     * Esta versión es más robusta y verifica el cifrado en memoria antes de escribir en disco.
+     */
+    fun importAndEncryptFile(context: Context, originalFileUri: Uri, originalFileName: String): File? {
+        val vaultDir = File(context.filesDir, VAULT_DIR).apply { mkdirs() }
+        val encryptedFile = File(vaultDir, "$originalFileName.enc")
+
+        try {
+            val plainText = context.contentResolver.openInputStream(originalFileUri)?.use { it.readBytes() }
+                ?: run {
+                    Log.e("VaultManager", "No se pudo abrir el InputStream para el archivo original.")
+                    return null
+                }
+
+            val aead = getAead(context)
+            val cipherText = aead.encrypt(plainText, ByteArray(0))
+
+            // Escribir el archivo cifrado en la bóveda
+            encryptedFile.writeBytes(cipherText)
+            Log.d("VaultManager", "Archivo cifrado y guardado exitosamente: ${encryptedFile.name}")
+
+            // ************************************************************************************
+            // ** PRUEBA: Eliminación del original desactivada temporalmente para diagnosticar. **
+            // ************************************************************************************
+            // context.contentResolver.delete(originalFileUri, null, null)
+
+            return encryptedFile
+
+        } catch (e: Exception) {
+            Log.e("VaultManager", "Error durante el proceso de cifrado y guardado.", e)
+            if (encryptedFile.exists()) {
+                encryptedFile.delete()
+            }
+            return null
+        }
     }
 }

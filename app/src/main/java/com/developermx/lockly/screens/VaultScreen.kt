@@ -17,7 +17,6 @@ import androidx.compose.material3.Divider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -29,11 +28,8 @@ fun VaultScreen(
     encryptedFiles: List<EncryptedFileMetadata>,
     onFileClick: (EncryptedFileMetadata) -> Unit,
     isFileInUse: (EncryptedFileMetadata) -> Boolean,
-    isLoadingFile: (EncryptedFileMetadata) -> Boolean,
-    recomposeTrigger: Boolean
+    isLoadingFile: (EncryptedFileMetadata) -> Boolean
 ) {
-    LaunchedEffect(recomposeTrigger) {}
-
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(vertical = 8.dp)

@@ -3,31 +3,22 @@ package com.lockly.vault
 import android.content.Context
 import com.google.crypto.tink.KeysetHandle
 import com.google.crypto.tink.aead.AeadKeyTemplates
-import com.google.crypto.tink.JsonKeysetReader
-import com.google.crypto.tink.JsonKeysetWriter
-import com.google.crypto.tink.integration.android.AndroidKeystoreKmsClient
-import java.io.File
+import com.google.crypto.tink.integration.android.AndroidKeysetManager
+import java.security.GeneralSecurityException
 
 object KeystoreHelper {
-    private const val MASTER_KEY_ALIAS = "master_key_alias"
-    private const val KEYSET_FILENAME = "master_keyset.json"
 
+    private const val KEYSET_NAME = "master_keyset"
+    private const val PREFERENCE_FILE = "master_key_preference"
+    private const val MASTER_KEY_URI = "android-keystore://_androidx_security_master_key_"
+
+    @Throws(GeneralSecurityException::class)
     fun getOrCreateMasterKey(context: Context): KeysetHandle {
-        val keysetFile = File(context.filesDir, KEYSET_FILENAME)
-        val kmsClient = AndroidKeystoreKmsClient()
-        val aead = kmsClient.getAead("android-keystore://$MASTER_KEY_ALIAS")
-        return if (keysetFile.exists()) {
-            KeysetHandle.read(
-                JsonKeysetReader.withFile(keysetFile),
-                aead
-            )
-        } else {
-            val handle = KeysetHandle.generateNew(AeadKeyTemplates.AES256_GCM)
-            handle.write(
-                JsonKeysetWriter.withFile(keysetFile),
-                aead
-            )
-            handle
-        }
+        return AndroidKeysetManager.Builder()
+            .withSharedPref(context, KEYSET_NAME, PREFERENCE_FILE)
+            .withKeyTemplate(AeadKeyTemplates.AES256_GCM)
+            .withMasterKeyUri(MASTER_KEY_URI)
+            .build()
+            .keysetHandle
     }
 }

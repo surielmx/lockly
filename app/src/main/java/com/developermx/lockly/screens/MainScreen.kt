@@ -1,42 +1,18 @@
 package com.developermx.lockly.screens
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import android.net.Uri
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationDrawerItem
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberDrawerState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import com.lockly.vault.EncryptedFileMetadata
 import kotlinx.coroutines.launch
 import java.io.File
@@ -46,15 +22,16 @@ data class NavItem(val title: String, val icon: ImageVector)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
+    snackbarHostState: SnackbarHostState,
     encryptedFiles: List<EncryptedFileMetadata>,
     unencryptedFiles: List<File>,
-    onEncryptFile: (File) -> Unit,
+    encryptingFiles: Set<Uri>,
+    creatingTempFile: Set<String>,
+    onEncryptFile: (Uri, String) -> Unit,
     onUseTempFile: (EncryptedFileMetadata) -> Unit,
     onDeleteTempFile: (EncryptedFileMetadata) -> Unit,
     onFolderClick: (File) -> Unit,
-    isFileInUse: (EncryptedFileMetadata) -> Boolean,
-    isLoadingFile: (EncryptedFileMetadata) -> Boolean,
-    recomposeTrigger: Boolean
+    isFileInUse: (EncryptedFileMetadata) -> Boolean
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -87,6 +64,7 @@ fun MainScreen(
     ) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
+            snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
             topBar = {
                 TopAppBar(
                     title = { Text(navItems[selectedTab].title) },
@@ -114,6 +92,7 @@ fun MainScreen(
                 when (selectedTab) {
                     0 -> FileExplorerScreen(
                         files = unencryptedFiles,
+                        encryptingFiles = encryptingFiles,
                         onFileClick = {
                             fileToEncrypt = it
                             showEncryptDialog = true
@@ -132,23 +111,22 @@ fun MainScreen(
                             }
                         },
                         isFileInUse = isFileInUse,
-                        isLoadingFile = isLoadingFile,
-                        recomposeTrigger = recomposeTrigger
+                        isLoadingFile = { file -> creatingTempFile.contains(file.uuid) }
                     )
                 }
             }
         }
     }
 
-
     if (showEncryptDialog && fileToEncrypt != null) {
         AlertDialog(
             onDismissRequest = { showEncryptDialog = false },
             title = { Text("Cifrar archivo") },
-            text = { Text("¿Deseas cifrar este archivo y eliminar el original?") },
+            text = { Text("¿Deseas cifrar este archivo?") },
             confirmButton = {
                 Button(onClick = {
-                    onEncryptFile(fileToEncrypt!!)
+                    val file = fileToEncrypt!!
+                    onEncryptFile(file.toUri(), file.name)
                     showEncryptDialog = false
                 }) { Text("Cifrar") }
             },
@@ -157,8 +135,9 @@ fun MainScreen(
             }
         )
     }
+
     if (showUseDialog && fileToUse != null) {
-        val isLoading = isLoadingFile(fileToUse!!)
+        val isLoading = creatingTempFile.contains(fileToUse?.uuid)
         AlertDialog(
             onDismissRequest = { if (!isLoading) showUseDialog = false },
             title = { Text("Usar archivo temporalmente") },
@@ -173,7 +152,10 @@ fun MainScreen(
             },
             confirmButton = {
                 Button(
-                    onClick = { onUseTempFile(fileToUse!!) },
+                    onClick = {
+                        onUseTempFile(fileToUse!!)
+                        showUseDialog = false
+                    },
                     enabled = !isLoading
                 ) { Text("Usar") }
             },
@@ -185,6 +167,7 @@ fun MainScreen(
             }
         )
     }
+
     if (showDeleteDialog && fileToDelete != null) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },

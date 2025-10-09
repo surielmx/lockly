@@ -9,12 +9,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.core.content.ContextCompat
 import com.developermx.lockly.screens.MainScreen
 import com.developermx.lockly.screens.PermissionRequestScreen
 import com.developermx.lockly.ui.theme.LocklyTheme
+import kotlinx.coroutines.flow.collectLatest
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -47,20 +51,28 @@ class MainActivity : ComponentActivity() {
             LocklyTheme {
                 val encryptedFiles by viewModel.encryptedFiles.collectAsState()
                 val unencryptedFiles by viewModel.unencryptedFiles.collectAsState()
-                val recomposeTrigger by viewModel.recomposeTrigger.collectAsState()
-                val loadingFileId by viewModel.loadingFileId.collectAsState()
+                val encryptingFiles by viewModel.encryptingFiles.collectAsState()
+                val creatingTempFile by viewModel.creatingTempFile.collectAsState()
+                val snackbarHostState = remember { SnackbarHostState() }
+
+                LaunchedEffect(Unit) {
+                    viewModel.snackbarMessage.collectLatest { message ->
+                        snackbarHostState.showSnackbar(message)
+                    }
+                }
 
                 if (viewModel.hasPermissions) {
                     MainScreen(
+                        snackbarHostState = snackbarHostState,
                         encryptedFiles = encryptedFiles,
                         unencryptedFiles = unencryptedFiles,
+                        encryptingFiles = encryptingFiles,
+                        creatingTempFile = creatingTempFile,
                         onEncryptFile = viewModel::encryptFile,
                         onUseTempFile = viewModel::useTempFile,
                         onDeleteTempFile = viewModel::deleteTempFile,
                         onFolderClick = viewModel::onFolderClick,
-                        isFileInUse = viewModel::isFileInUse,
-                        isLoadingFile = { it.uuid == loadingFileId },
-                        recomposeTrigger = recomposeTrigger
+                        isFileInUse = viewModel::isFileInUse
                     )
                 } else {
                     PermissionRequestScreen {
