@@ -1,18 +1,19 @@
 package com.developermx.lockly
 
 import android.app.Application
-import android.content.IntentSender
+import android.content.Intent
 import android.net.Uri
 import android.os.Environment
 import android.util.Log
+import android.webkit.MimeTypeMap
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.FileProvider
+import androidx.core.net.toUri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.lockly.vault.EncryptedFileMetadata
 import kotlinx.coroutines.CoroutineExceptionHandler
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -23,85 +24,108 @@ import java.io.File
 import java.io.FileOutputStream
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
-    // --- Estados para Archivos y UI ---
-    private val _encryptedFiles = MutableStateFlow<List<EncryptedFileMetadata>>(emptyList())
-    val encryptedFiles = _encryptedFiles.asStateFlow()
+    private val vaultRoot = File(application.filesDir, "vault").apply { mkdirs() }
+    val vaultRootPath: String get() = vaultRoot.absolutePath
 
+    // --- Estados para el Explorador de Archivos Externos ---
     private val _unencryptedFiles = MutableStateFlow<List<File>>(emptyList())
     val unencryptedFiles = _unencryptedFiles.asStateFlow()
-
     private val _currentPath = MutableStateFlow(Environment.getExternalStorageDirectory())
     val currentPath = _currentPath.asStateFlow()
 
+    // --- Estados para el Explorador de la Bóveda ---
+    private val _vaultFiles = MutableStateFlow<List<File>>(emptyList())
+    val vaultFiles = _vaultFiles.asStateFlow()
+    private val _currentVaultPath = MutableStateFlow(vaultRoot)
+    val currentVaultPath = _currentVaultPath.asStateFlow()
+
+    // --- Estados de la UI y Tareas en Progreso ---
     private val _encryptingFiles = MutableStateFlow<Set<Uri>>(emptySet())
     val encryptingFiles = _encryptingFiles.asStateFlow()
-
     private val _creatingTempFile = MutableStateFlow<Set<String>>(emptySet())
     val creatingTempFile = _creatingTempFile.asStateFlow()
-
+    private val _recentlyEncryptedFiles = MutableStateFlow<Set<String>>(emptySet())
+    val recentlyEncryptedFiles = _recentlyEncryptedFiles.asStateFlow()
+    private val _inUseFiles = MutableStateFlow<Set<String>>(emptySet())
+    val inUseFiles = _inUseFiles.asStateFlow()
     var hasPermissions by mutableStateOf(false)
 
-    // --- Canal para eventos de UI (Snackbar y Permisos) ---
+    // --- Diálogos ---
+    private val _showDeleteConfirmationDialog = MutableStateFlow<File?>(null)
+    val showDeleteConfirmationDialog = _showDeleteConfirmationDialog.asStateFlow()
+
+    // --- Canal para eventos de UI ---
     private val _snackbarMessage = MutableSharedFlow<String>()
     val snackbarMessage = _snackbarMessage.asSharedFlow()
-
-    private val _permissionRequest = MutableSharedFlow<IntentSender>()
-    val permissionRequest = _permissionRequest.asSharedFlow()
-
-    private val excludedFolders = setOf(
-        "android" // Solo excluimos la carpeta "android"
-    )
+    private val _openFileRequest = MutableSharedFlow<Intent>()
+    val openFileRequest = _openFileRequest.asSharedFlow()
 
     private val TAG = "MainViewModel"
-
     private val coroutineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
         Log.e(TAG, "Excepción no controlada en una corrutina", throwable)
+        showSnackbarMessage("Ocurrió un error inesperado.")
     }
 
     init {
-        loadEncryptedFiles()
+        if (hasPermissions) {
+            loadUnencryptedFiles()
+        }
+        loadVaultFiles()
+        loadInUseFiles()
     }
 
-    // --- Lógica de Carga y Navegación ---
-    fun loadEncryptedFiles() {
+    fun showSnackbarMessage(message: String) {
         viewModelScope.launch {
-            val context = getApplication<Application>()
-            val vaultDir = File(context.filesDir, "vault")
-            if (!vaultDir.exists()) vaultDir.mkdirs()
-
-            _encryptedFiles.value = vaultDir.listFiles()
-                ?.filter { file -> file.name.endsWith(".enc") }
-                ?.map { file ->
-                    EncryptedFileMetadata(
-                        uuid = file.nameWithoutExtension,
-                        originalName = file.name,
-                        mimeType = "application/octet-stream",
-                        wrappedKey = ByteArray(0)
-                    )
-                } ?: emptyList()
+            _snackbarMessage.emit(message)
         }
+    }
+
+    // --- Lógica de Navegación y Filtrado ---
+
+    private fun filterFile(file: File): Boolean {
+        if (file.name.startsWith(".")) return false
+        if (!file.absolutePath.startsWith(vaultRoot.absolutePath)) {
+            val name = file.name.lowercase()
+            if (file.isDirectory && (name == "android" || name.startsWith("com."))) {
+                return false
+            }
+        }
+        return true
+    }
+
+    fun getVisibleFileCount(directory: File): Int {
+        if (!directory.isDirectory) return 0
+        return directory.listFiles()?.count(::filterFile) ?: 0
     }
 
     fun loadUnencryptedFiles() {
         if (!hasPermissions) return
         viewModelScope.launch {
-            val files = _currentPath.value.listFiles()?.filter { file: File ->
-                if (!file.isDirectory) {
-                    true
-                } else {
-                    val name = file.name.lowercase()
-                    !name.startsWith(".") && name !in excludedFolders && !name.startsWith("com.") && name != "lockly"
-                }
-            }?.toList() ?: emptyList()
-            _unencryptedFiles.value = files
+            _unencryptedFiles.value = _currentPath.value.listFiles()?.filter(::filterFile)?.sorted()?.toList() ?: emptyList()
+        }
+    }
+
+    fun loadVaultFiles() {
+        viewModelScope.launch {
+            _vaultFiles.value = _currentVaultPath.value.listFiles()?.filter(::filterFile)?.sorted()?.toList() ?: emptyList()
+        }
+    }
+
+    private fun loadInUseFiles() {
+        viewModelScope.launch {
+            val cacheDir = getApplication<Application>().cacheDir
+            _inUseFiles.value = cacheDir.listFiles()?.map { it.name }?.toSet() ?: emptySet()
         }
     }
 
     fun onFolderClick(folder: File) {
-        if (folder.isDirectory) {
-            _currentPath.value = folder
-            loadUnencryptedFiles()
-        }
+        _currentPath.value = folder
+        loadUnencryptedFiles()
+    }
+
+    fun onVaultFolderClick(folder: File) {
+        _currentVaultPath.value = folder
+        loadVaultFiles()
     }
 
     fun onPathClick(path: String) {
@@ -112,99 +136,106 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun navigateBack(): Boolean {
-        val parent = _currentPath.value.parentFile
-        val root = Environment.getExternalStorageDirectory()
-        return if (parent != null && parent.canRead() && parent.path != root.parent) {
-            _currentPath.value = parent
-            loadUnencryptedFiles()
+    fun onVaultPathClick(path: String) {
+        val newPath = File(path)
+        if (newPath.exists() && newPath.isDirectory) {
+            _currentVaultPath.value = newPath
+            loadVaultFiles()
+        }
+    }
+
+    fun navigateBack(isVault: Boolean): Boolean {
+        val current = if (isVault) _currentVaultPath.value else _currentPath.value
+        val root = if (isVault) vaultRoot else Environment.getExternalStorageDirectory()
+        val parent = current.parentFile
+
+        return if (parent != null && parent.absolutePath.startsWith(root.absolutePath)) {
+            if (isVault) {
+                _currentVaultPath.value = parent
+                loadVaultFiles()
+            } else {
+                _currentPath.value = parent
+                loadUnencryptedFiles()
+            }
             true
         } else {
             false
         }
     }
 
-    // --- Lógica de Cifrado con Feedback Mejorado ---
-    fun encryptFile(fileUri: Uri, fileName: String) {
-        Log.d(TAG, "encryptFile llamado con URI: $fileUri y nombre: $fileName")
+    // --- Lógica de Cifrado y Descifrado ---
+
+    fun encryptFile(originalFile: File) {
         viewModelScope.launch(coroutineExceptionHandler) {
-            _encryptingFiles.update { it + fileUri }
-            var success = false
+            _encryptingFiles.update { it + originalFile.toUri() }
             try {
                 val context = getApplication<Application>()
-                val (encryptedFile, intentSender) = VaultManager.importAndEncryptFile(context, fileUri, fileName)
-
+                val encryptedFile = VaultManager.importAndEncryptFile(context, originalFile)
                 if (encryptedFile != null) {
-                    success = true
-                    delay(1000)
-                    if (intentSender != null) {
-                        _permissionRequest.emit(intentSender)
-                    } else {
-                        // Eliminación exitosa o no necesaria
-                        loadUnencryptedFiles()
-                    }
+                    loadVaultFiles()
+                    _showDeleteConfirmationDialog.value = originalFile
+                    _recentlyEncryptedFiles.update { it + encryptedFile.absolutePath }
+                } else {
+                    showSnackbarMessage("Error al cifrar '${originalFile.name}'")
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Excepción atrapada en la corrutina de cifrado", e)
+            } finally {
+                _encryptingFiles.update { it - originalFile.toUri() }
             }
-            finally {
-                _encryptingFiles.update { it - fileUri }
-            }
+        }
+    }
 
-            if (success) {
-                _snackbarMessage.emit("'$fileName' cifrado con éxito.")
-                loadEncryptedFiles()
+    fun deleteOriginalFile(originalFile: File) {
+        viewModelScope.launch(coroutineExceptionHandler) {
+            if (originalFile.exists() && originalFile.delete()) {
+                showSnackbarMessage("Archivo original eliminado con éxito.")
+                loadUnencryptedFiles()
             } else {
-                _snackbarMessage.emit("Error al cifrar '$fileName'")
+                showSnackbarMessage("No se pudo eliminar el archivo original.")
             }
+            _showDeleteConfirmationDialog.value = null
         }
     }
 
-    // --- Lógica de Archivos Temporales ---
-    private fun getTempDir(): File {
-        val publicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-        val tempDir = File(publicDir, "lockly")
-        if (!tempDir.exists()) {
-            tempDir.mkdirs()
-        }
-        return tempDir
-    }
-
-    fun isFileInUse(file: EncryptedFileMetadata): Boolean {
-        val tempDir = getTempDir()
-        val tempFile = File(tempDir, file.originalName.removeSuffix(".enc"))
-        return tempFile.exists()
-    }
-
-    fun useTempFile(file: EncryptedFileMetadata) {
-        viewModelScope.launch {
-            _creatingTempFile.update { it + file.uuid }
+    fun decryptAndOpenFile(file: File) {
+        viewModelScope.launch(coroutineExceptionHandler) {
+            _creatingTempFile.update { it + file.absolutePath }
             try {
                 val context = getApplication<Application>()
-                val vaultDir = File(context.filesDir, "vault")
-                val encryptedFile = File(vaultDir, file.originalName)
-                val tempDir = getTempDir()
-                val tempFile = File(tempDir, file.originalName.removeSuffix(".enc"))
+                val tempFile = File(context.cacheDir, file.name.removeSuffix(".enc"))
 
-                encryptedFile.inputStream().use { inputStream ->
+                file.inputStream().use { inputStream ->
                     FileOutputStream(tempFile).use { outputStream ->
                         VaultManager.decryptStream(context, inputStream, outputStream)
                     }
                 }
-                loadEncryptedFiles()
+                _inUseFiles.update { it + tempFile.name }
+                _recentlyEncryptedFiles.update { it - file.absolutePath }
+
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", tempFile)
+                val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(tempFile.extension)
+                val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, mimeType)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                _openFileRequest.emit(openIntent)
             } finally {
-                _creatingTempFile.update { it - file.uuid }
+                _creatingTempFile.update { it - file.absolutePath }
             }
         }
     }
 
-    fun deleteTempFile(file: EncryptedFileMetadata) {
+    fun deleteTempFile(file: File) {
         viewModelScope.launch {
-            val tempDir = getTempDir()
-            val tempFile = File(tempDir, file.originalName.removeSuffix(".enc"))
-            if (tempFile.exists() && tempFile.delete()) {
-                loadEncryptedFiles()
+            val tempFile = File(getApplication<Application>().cacheDir, file.name.removeSuffix(".enc"))
+            if (tempFile.exists()) {
+                if (tempFile.delete()) {
+                    _inUseFiles.update { it - tempFile.name }
+                }
             }
         }
+    }
+
+    fun dismissDeleteConfirmationDialog() {
+        _showDeleteConfirmationDialog.value = null
     }
 }

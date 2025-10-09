@@ -1,15 +1,17 @@
 package com.developermx.lockly
 
 import android.Manifest
-import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.Settings
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.IntentSenderRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.LaunchedEffect
@@ -25,35 +27,14 @@ import kotlinx.coroutines.flow.collectLatest
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
 
-    private val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        arrayOf(
-            Manifest.permission.READ_MEDIA_IMAGES,
-            Manifest.permission.READ_MEDIA_VIDEO,
-            Manifest.permission.READ_MEDIA_AUDIO
-        )
-    } else {
-        arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-    }
-
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val allPermissionsGranted = permissions.entries.all { it.value }
-        if (allPermissionsGranted) {
+    private val manageStorageLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (checkPermissions()) {
             viewModel.hasPermissions = true
             viewModel.loadUnencryptedFiles()
         }
     }
-
-    private val deleteRequestLauncher = registerForActivityResult(
-        ActivityResultContracts.StartIntentSenderForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            // El usuario concedió el permiso, los archivos deberían actualizarse
-            viewModel.loadUnencryptedFiles()
-        }
-    }
-
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,11 +42,15 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             LocklyTheme {
-                val encryptedFiles by viewModel.encryptedFiles.collectAsState()
                 val unencryptedFiles by viewModel.unencryptedFiles.collectAsState()
+                val vaultFiles by viewModel.vaultFiles.collectAsState()
                 val creatingTempFile by viewModel.creatingTempFile.collectAsState()
                 val currentPath by viewModel.currentPath.collectAsState()
+                val currentVaultPath by viewModel.currentVaultPath.collectAsState()
                 val snackbarHostState = remember { SnackbarHostState() }
+                val fileToDelete by viewModel.showDeleteConfirmationDialog.collectAsState()
+                val recentlyEncryptedFiles by viewModel.recentlyEncryptedFiles.collectAsState()
+                val inUseFiles by viewModel.inUseFiles.collectAsState()
 
                 LaunchedEffect(Unit) {
                     viewModel.snackbarMessage.collectLatest { message ->
@@ -74,52 +59,86 @@ class MainActivity : ComponentActivity() {
                 }
 
                 LaunchedEffect(Unit) {
-                    viewModel.permissionRequest.collectLatest { intentSender ->
-                        val request = IntentSenderRequest.Builder(intentSender).build()
-                        deleteRequestLauncher.launch(request)
+                    viewModel.openFileRequest.collectLatest { intent ->
+                        try {
+                            startActivity(intent)
+                        } catch (e: Exception) {
+                            Log.e("MainActivity", "No se pudo abrir el archivo.", e)
+                            viewModel.showSnackbarMessage("No se encontró una aplicación para abrir este archivo.")
+                        }
                     }
                 }
 
                 if (viewModel.hasPermissions) {
                     MainScreen(
                         snackbarHostState = snackbarHostState,
-                        encryptedFiles = encryptedFiles,
                         unencryptedFiles = unencryptedFiles,
+                        vaultFiles = vaultFiles,
                         creatingTempFile = creatingTempFile,
+                        fileToDeleteAfterEncryption = fileToDelete,
+                        inUseFiles = inUseFiles, // Nuevo
+                        recentlyEncryptedFiles = recentlyEncryptedFiles,
                         onEncryptFile = viewModel::encryptFile,
-                        onUseTempFile = viewModel::useTempFile,
+                        onDecryptAndOpenFile = viewModel::decryptAndOpenFile,
                         onDeleteTempFile = viewModel::deleteTempFile,
                         onFolderClick = viewModel::onFolderClick,
-                        isFileInUse = viewModel::isFileInUse,
+                        onVaultFolderClick = viewModel::onVaultFolderClick,
+                        getVisibleFileCount = viewModel::getVisibleFileCount,
                         currentPath = currentPath.absolutePath,
-                        onPathClick = viewModel::onPathClick
+                        currentVaultPath = currentVaultPath.absolutePath,
+                        vaultRootPath = viewModel.vaultRootPath,
+                        onPathClick = viewModel::onPathClick,
+                        onVaultPathClick = viewModel::onVaultPathClick,
+                        onDeleteOriginalFile = viewModel::deleteOriginalFile,
+                        onDismissDeleteConfirmation = viewModel::dismissDeleteConfirmationDialog,
+                        onNavigateBack = viewModel::navigateBack
                     )
                 } else {
                     PermissionRequestScreen {
-                        requestPermissionLauncher.launch(permissionsToRequest)
+                        requestPermissions()
                     }
                 }
             }
         }
-
-        if (checkPermissions()) {
-            viewModel.hasPermissions = true
-            viewModel.loadUnencryptedFiles()
-        }
     }
 
-    override fun onBackPressed() {
-        if (!viewModel.navigateBack()) {
-            super.onBackPressed()
+    override fun onResume() {
+        super.onResume()
+        if (checkPermissions()) {
+            if (!viewModel.hasPermissions) {
+                viewModel.hasPermissions = true
+                viewModel.loadUnencryptedFiles()
+            }
+        } else {
+            viewModel.hasPermissions = false
         }
     }
 
     private fun checkPermissions(): Boolean {
-        return permissionsToRequest.all {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
             ContextCompat.checkSelfPermission(
                 this,
-                it
+                Manifest.permission.READ_EXTERNAL_STORAGE
             ) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun requestPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                intent.addCategory("android.intent.category.DEFAULT")
+                intent.data = Uri.parse(String.format("package:%s", applicationContext.packageName))
+                manageStorageLauncher.launch(intent)
+            } catch (e: Exception) {
+                val intent = Intent()
+                intent.action = Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION
+                manageStorageLauncher.launch(intent)
+            }
+        } else {
+            // Implementar la solicitud para versiones anteriores si es necesario
         }
     }
 }
