@@ -49,8 +49,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val permissionRequest = _permissionRequest.asSharedFlow()
 
     private val excludedFolders = setOf(
-        "alarms", "android", "audiobooks", "miui", "movies", "music",
-        "notifications", "podcasts", "ringtones"
+        "android" // Solo excluimos la carpeta "android"
     )
 
     private val TAG = "MainViewModel"
@@ -71,11 +70,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (!vaultDir.exists()) vaultDir.mkdirs()
 
             _encryptedFiles.value = vaultDir.listFiles()
-                ?.filter { it.name.endsWith(".enc") }
-                ?.map {
+                ?.filter { file -> file.name.endsWith(".enc") }
+                ?.map { file ->
                     EncryptedFileMetadata(
-                        uuid = it.nameWithoutExtension,
-                        originalName = it.name,
+                        uuid = file.nameWithoutExtension,
+                        originalName = file.name,
                         mimeType = "application/octet-stream",
                         wrappedKey = ByteArray(0)
                     )
@@ -86,7 +85,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun loadUnencryptedFiles() {
         if (!hasPermissions) return
         viewModelScope.launch {
-            val files = _currentPath.value.listFiles()?.filter { file ->
+            val files = _currentPath.value.listFiles()?.filter { file: File ->
                 if (!file.isDirectory) {
                     true
                 } else {
@@ -101,6 +100,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun onFolderClick(folder: File) {
         if (folder.isDirectory) {
             _currentPath.value = folder
+            loadUnencryptedFiles()
+        }
+    }
+
+    fun onPathClick(path: String) {
+        val newPath = File(path)
+        if (newPath.exists() && newPath.isDirectory) {
+            _currentPath.value = newPath
             loadUnencryptedFiles()
         }
     }

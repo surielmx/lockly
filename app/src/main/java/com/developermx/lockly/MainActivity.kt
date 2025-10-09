@@ -63,8 +63,8 @@ class MainActivity : ComponentActivity() {
             LocklyTheme {
                 val encryptedFiles by viewModel.encryptedFiles.collectAsState()
                 val unencryptedFiles by viewModel.unencryptedFiles.collectAsState()
-                val encryptingFiles by viewModel.encryptingFiles.collectAsState()
                 val creatingTempFile by viewModel.creatingTempFile.collectAsState()
+                val currentPath by viewModel.currentPath.collectAsState()
                 val snackbarHostState = remember { SnackbarHostState() }
 
                 LaunchedEffect(Unit) {
@@ -85,13 +85,14 @@ class MainActivity : ComponentActivity() {
                         snackbarHostState = snackbarHostState,
                         encryptedFiles = encryptedFiles,
                         unencryptedFiles = unencryptedFiles,
-                        encryptingFiles = encryptingFiles,
                         creatingTempFile = creatingTempFile,
                         onEncryptFile = viewModel::encryptFile,
                         onUseTempFile = viewModel::useTempFile,
                         onDeleteTempFile = viewModel::deleteTempFile,
                         onFolderClick = viewModel::onFolderClick,
-                        isFileInUse = viewModel::isFileInUse
+                        isFileInUse = viewModel::isFileInUse,
+                        currentPath = currentPath.absolutePath,
+                        onPathClick = viewModel::onPathClick
                     )
                 } else {
                     PermissionRequestScreen {

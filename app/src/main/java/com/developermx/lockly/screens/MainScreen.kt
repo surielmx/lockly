@@ -1,9 +1,15 @@
 package com.developermx.lockly.screens
 
 import android.net.Uri
+import android.os.Environment
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.*
@@ -11,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.lockly.vault.EncryptedFileMetadata
@@ -19,23 +26,129 @@ import java.io.File
 
 data class NavItem(val title: String, val icon: ImageVector)
 
+@Composable
+fun Breadcrumb(path: String, onPathClick: (String) -> Unit) {
+    Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        val rootPath = Environment.getExternalStorageDirectory().absolutePath
+        val parts = path.removePrefix(rootPath).split("/").filter { it.isNotEmpty() }
+
+        Text(
+            text = "Internal",
+            modifier = Modifier.clickable { onPathClick(rootPath) },
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        var currentPath = rootPath
+        parts.forEach { part ->
+            currentPath += "/$part"
+            val targetPath = currentPath
+            Text(
+                text = " > $part",
+                modifier = Modifier.clickable { onPathClick(targetPath) },
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+
+@Composable
+fun FileExplorerScreen(
+    files: List<File>,
+    onFileClick: (File) -> Unit,
+    onFolderClick: (File) -> Unit,
+    currentPath: String,
+    onPathClick: (String) -> Unit
+) {
+    Column {
+        Breadcrumb(path = currentPath, onPathClick = onPathClick)
+        if (files.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Inbox,
+                        contentDescription = "Carpeta vacía",
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Esta carpeta está vacía",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+            }
+        } else {
+            LazyColumn {
+                items(files) { file ->
+                    val itemCount = if (file.isDirectory) file.listFiles()?.size ?: 0 else 0
+                    val isDimmed = file.isDirectory && itemCount == 0
+                    val contentColor = if (isDimmed) {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { if (file.isDirectory) onFolderClick(file) else onFileClick(file) }
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        if (file.isDirectory) {
+                            Icon(Icons.Default.Folder, contentDescription = "Folder", tint = contentColor)
+                        } else {
+                            Icon(Icons.AutoMirrored.Filled.Article, contentDescription = "File")
+                        }
+                        Column {
+                            Text(
+                                text = file.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = contentColor
+                            )
+                            if (file.isDirectory) {
+                                Text(
+                                    text = "$itemCount items",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = contentColor
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     snackbarHostState: SnackbarHostState,
     encryptedFiles: List<EncryptedFileMetadata>,
     unencryptedFiles: List<File>,
-    encryptingFiles: Set<Uri>,
     creatingTempFile: Set<String>,
     onEncryptFile: (Uri, String) -> Unit,
     onUseTempFile: (EncryptedFileMetadata) -> Unit,
     onDeleteTempFile: (EncryptedFileMetadata) -> Unit,
     onFolderClick: (File) -> Unit,
-    isFileInUse: (EncryptedFileMetadata) -> Boolean
+    isFileInUse: (EncryptedFileMetadata) -> Boolean,
+    currentPath: String,
+    onPathClick: (String) -> Unit
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    var selectedTab by remember { mutableStateOf(0) }
+    var selectedTab by remember { mutableIntStateOf(0) }
     val navItems = listOf(
         NavItem("Explorador", Icons.AutoMirrored.Filled.Article),
         NavItem("Bóveda", Icons.Filled.Security)
@@ -100,12 +213,13 @@ fun MainScreen(
                 when (selectedTab) {
                     0 -> FileExplorerScreen(
                         files = unencryptedFiles,
-                        encryptingFiles = encryptingFiles,
                         onFileClick = {
                             fileToEncrypt = it
                             showEncryptDialog = true
                         },
-                        onFolderClick = onFolderClick
+                        onFolderClick = onFolderClick,
+                        currentPath = currentPath,
+                        onPathClick = onPathClick
                     )
                     1 -> VaultScreen(
                         encryptedFiles = encryptedFiles,
