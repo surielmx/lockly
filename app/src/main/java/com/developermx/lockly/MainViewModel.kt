@@ -1,14 +1,17 @@
 package com.developermx.lockly
 
 import android.app.Application
+import android.content.IntentSender
 import android.net.Uri
 import android.os.Environment
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.lockly.vault.EncryptedFileMetadata
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,14 +41,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     var hasPermissions by mutableStateOf(false)
 
-    // --- Canal para eventos de UI (Snackbar) ---
+    // --- Canal para eventos de UI (Snackbar y Permisos) ---
     private val _snackbarMessage = MutableSharedFlow<String>()
     val snackbarMessage = _snackbarMessage.asSharedFlow()
+
+    private val _permissionRequest = MutableSharedFlow<IntentSender>()
+    val permissionRequest = _permissionRequest.asSharedFlow()
 
     private val excludedFolders = setOf(
         "alarms", "android", "audiobooks", "miui", "movies", "music",
         "notifications", "podcasts", "ringtones"
     )
+
+    private val TAG = "MainViewModel"
+
+    private val coroutineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        Log.e(TAG, "Excepción no controlada en una corrutina", throwable)
+    }
 
     init {
         loadEncryptedFiles()
@@ -107,24 +119,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Lógica de Cifrado con Feedback Mejorado ---
     fun encryptFile(fileUri: Uri, fileName: String) {
-        viewModelScope.launch {
+        Log.d(TAG, "encryptFile llamado con URI: $fileUri y nombre: $fileName")
+        viewModelScope.launch(coroutineExceptionHandler) {
             _encryptingFiles.update { it + fileUri }
             var success = false
             try {
                 val context = getApplication<Application>()
-                val encryptedFile = VaultManager.importAndEncryptFile(context, fileUri, fileName)
+                val (encryptedFile, intentSender) = VaultManager.importAndEncryptFile(context, fileUri, fileName)
+
                 if (encryptedFile != null) {
                     success = true
                     delay(1000)
+                    if (intentSender != null) {
+                        _permissionRequest.emit(intentSender)
+                    } else {
+                        // Eliminación exitosa o no necesaria
+                        loadUnencryptedFiles()
+                    }
                 }
-            } finally {
+            } catch (e: Exception) {
+                Log.e(TAG, "Excepción atrapada en la corrutina de cifrado", e)
+            }
+            finally {
                 _encryptingFiles.update { it - fileUri }
             }
 
             if (success) {
-                _snackbarMessage.emit("'$fileName' cifrado con éxito")
+                _snackbarMessage.emit("'$fileName' cifrado con éxito.")
                 loadEncryptedFiles()
-                loadUnencryptedFiles()
             } else {
                 _snackbarMessage.emit("Error al cifrar '$fileName'")
             }

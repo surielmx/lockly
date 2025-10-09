@@ -1,8 +1,13 @@
 package com.developermx.lockly
 
+import android.content.ContentUris
 import android.content.Context
+import android.content.IntentSender
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import android.util.Log
+import android.webkit.MimeTypeMap
 import com.google.crypto.tink.Aead
 import com.google.crypto.tink.aead.AeadConfig
 import com.lockly.vault.KeystoreHelper
@@ -18,6 +23,7 @@ object VaultManager {
     private const val VAULT_DIR = "vault"
     private const val PASSWORD_FILE = "_vlt_pwd.bin"
     private const val SALT_FILE = "_vlt_slt.bin"
+    private const val TAG = "VaultManager"
 
     init {
         try {
@@ -73,41 +79,90 @@ object VaultManager {
         outputStream.write(decryptedText)
     }
 
+    private fun getMimeType(filePath: String): String? {
+        val extension = MimeTypeMap.getFileExtensionFromUrl(filePath)
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension?.lowercase())
+    }
+
+    private fun getFileContentUri(context: Context, filePath: String): Uri? {
+        val mimeType = getMimeType(filePath)
+        val queryUri: Uri = when {
+            mimeType?.startsWith("image/") == true -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            mimeType?.startsWith("video/") == true -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            mimeType?.startsWith("audio/") == true -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            else -> MediaStore.Files.getContentUri("external") // Fallback
+        }
+
+        val projection = arrayOf(MediaStore.Files.FileColumns._ID)
+        val selection = "${MediaStore.Files.FileColumns.DATA} = ?"
+        val selectionArgs = arrayOf(filePath)
+
+        context.contentResolver.query(queryUri, projection, selection, selectionArgs, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID))
+                return ContentUris.withAppendedId(queryUri, id)
+            }
+        }
+        return null
+    }
+
     /**
      * Proceso completo para importar, cifrar y verificar un archivo en la bóveda.
-     * Esta versión es más robusta y verifica el cifrado en memoria antes de escribir en disco.
+     * Devuelve un par con el archivo cifrado y un IntentSender si se necesita permiso para eliminar.
      */
-    fun importAndEncryptFile(context: Context, originalFileUri: Uri, originalFileName: String): File? {
+    fun importAndEncryptFile(context: Context, originalFileUri: Uri, originalFileName: String): Pair<File?, IntentSender?> {
+        Log.d(TAG, "Iniciando proceso de cifrado para: $originalFileName")
         val vaultDir = File(context.filesDir, VAULT_DIR).apply { mkdirs() }
         val encryptedFile = File(vaultDir, "$originalFileName.enc")
 
         try {
             val plainText = context.contentResolver.openInputStream(originalFileUri)?.use { it.readBytes() }
                 ?: run {
-                    Log.e("VaultManager", "No se pudo abrir el InputStream para el archivo original.")
-                    return null
+                    Log.e(TAG, "No se pudo abrir el InputStream para el archivo original.")
+                    return Pair(null, null)
                 }
 
             val aead = getAead(context)
             val cipherText = aead.encrypt(plainText, ByteArray(0))
+            val decryptedText = aead.decrypt(cipherText, ByteArray(0))
 
-            // Escribir el archivo cifrado en la bóveda
+            if (!plainText.contentEquals(decryptedText)) {
+                Log.e(TAG, "Error de verificación: El archivo descifrado no coincide con el original.")
+                return Pair(null, null)
+            }
+
             encryptedFile.writeBytes(cipherText)
-            Log.d("VaultManager", "Archivo cifrado y guardado exitosamente: ${encryptedFile.name}")
+            Log.d(TAG, "Archivo cifrado y guardado exitosamente: ${encryptedFile.name}")
 
-            // ************************************************************************************
-            // ** PRUEBA: Eliminación del original desactivada temporalmente para diagnosticar. **
-            // ************************************************************************************
-            // context.contentResolver.delete(originalFileUri, null, null)
+            // Solicitar la eliminación usando MediaStore.createDeleteRequest.
+            originalFileUri.path?.let { filePath ->
+                val contentUri = getFileContentUri(context, filePath)
+                if (contentUri != null) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        val pendingIntent = MediaStore.createDeleteRequest(context.contentResolver, listOf(contentUri))
+                        return Pair(encryptedFile, pendingIntent.intentSender)
+                    } else {
+                        // Para versiones más antiguas, intentar la eliminación directa
+                        try {
+                            val rowsDeleted = context.contentResolver.delete(contentUri, null, null)
+                            if (rowsDeleted == 0) Log.w(TAG, "No se pudo eliminar el archivo original.")
+                        } catch (e: SecurityException) {
+                            Log.e(TAG, "Error de seguridad al eliminar en una versión antigua de Android.", e)
+                        }
+                    }
+                } else {
+                    Log.w(TAG, "No se pudo encontrar el Content URI para '${filePath}'.")
+                }
+            }
 
-            return encryptedFile
+            return Pair(encryptedFile, null)
 
         } catch (e: Exception) {
-            Log.e("VaultManager", "Error durante el proceso de cifrado y guardado.", e)
+            Log.e(TAG, "Error durante el proceso de cifrado y guardado.", e)
             if (encryptedFile.exists()) {
                 encryptedFile.delete()
             }
-            return null
+            return Pair(null, null)
         }
     }
 }
