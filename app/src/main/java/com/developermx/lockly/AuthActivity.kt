@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.FragmentActivity
 import com.developermx.lockly.ui.AuthScreen
 import com.developermx.lockly.ui.theme.LocklyTheme
@@ -13,6 +14,7 @@ import com.developermx.lockly.ui.theme.LocklyTheme
 class AuthActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        installSplashScreen()
         setContent {
             LocklyTheme {
                 val passwordState = remember { mutableStateOf("") }

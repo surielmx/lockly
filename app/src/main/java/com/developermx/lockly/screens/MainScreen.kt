@@ -28,9 +28,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.rememberAsyncImagePainter
 import com.developermx.lockly.R
+import com.developermx.lockly.ui.theme.White
 import com.developermx.lockly.utils.getIconForFile
 import kotlinx.coroutines.launch
 import java.io.File
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
 
 data class NavItem(val title: String, val icon: ImageVector)
 
@@ -42,17 +46,18 @@ fun Breadcrumb(path: String, rootDisplayName: String, rootPath: String, onPathCl
         Text(
             text = rootDisplayName,
             modifier = Modifier.clickable { onPathClick(rootPath) },
-            color = MaterialTheme.colorScheme.primary
+            color = if (parts.isEmpty()) MaterialTheme.colorScheme.primary else White
         )
 
         var currentPath = rootPath
-        parts.forEach { part ->
+        parts.forEachIndexed { index, part ->
             currentPath += "/$part"
             val targetPath = currentPath
+            val isLastPart = index == parts.size - 1
             Text(
                 text = " > ${part.removeSuffix(".enc")}",
                 modifier = Modifier.clickable { onPathClick(targetPath) },
-                color = MaterialTheme.colorScheme.primary
+                color = if (isLastPart) MaterialTheme.colorScheme.primary else White
             )
         }
     }
@@ -75,7 +80,12 @@ fun FileExplorerScreen(
     onPathClick: (String) -> Unit,
     isVault: Boolean,
     inUseFiles: Set<String>,
-    recentlyEncryptedFiles: Set<String>
+    recentlyEncryptedFiles: Set<String>,
+    // Nuevos parámetros para el modo de selección
+    selectionMode: Boolean,
+    selectedFiles: Set<File>,
+    onToggleFileSelection: (File) -> Unit,
+    onFileLongClick: (File) -> Unit
 ) {
     val imageCount = files.count { isImageFile(it.name) }
     val displayAsGrid = !isVault && imageCount > files.size / 2 && imageCount > 0
@@ -107,9 +117,9 @@ fun FileExplorerScreen(
                 }
             }
         } else if (displayAsGrid) {
-            ImageGrid(files, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles)
+            ImageGrid(files, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick)
         } else {
-            FileList(files, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, recentlyEncryptedFiles)
+            FileList(files, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, recentlyEncryptedFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick)
         }
     }
 }
@@ -122,11 +132,15 @@ fun FileList(
     getVisibleFileCount: (File) -> Int,
     isVault: Boolean,
     inUseFiles: Set<String>,
-    recentlyEncryptedFiles: Set<String>
+    recentlyEncryptedFiles: Set<String>,
+    selectionMode: Boolean,
+    selectedFiles: Set<File>,
+    onToggleFileSelection: (File) -> Unit,
+    onFileLongClick: (File) -> Unit
 ) {
     LazyColumn {
         items(files) { file ->
-            FileListItem(file, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, recentlyEncryptedFiles)
+            FileListItem(file, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, recentlyEncryptedFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick)
         }
     }
 }
@@ -138,19 +152,24 @@ fun ImageGrid(
     onFolderClick: (File) -> Unit,
     getVisibleFileCount: (File) -> Int,
     isVault: Boolean,
-    inUseFiles: Set<String>
+    inUseFiles: Set<String>,
+    selectionMode: Boolean,
+    selectedFiles: Set<File>,
+    onToggleFileSelection: (File) -> Unit,
+    onFileLongClick: (File) -> Unit
 ) {
     LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 128.dp), contentPadding = PaddingValues(4.dp)) {
         items(files) {
             if (it.isDirectory) {
                 FolderGridItem(it, onFolderClick, getVisibleFileCount)
             } else {
-                ImageGridItem(it, onFileClick, isVault, inUseFiles)
+                ImageGridItem(it, onFileClick, isVault, inUseFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick)
             }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FileListItem(
     file: File,
@@ -159,18 +178,33 @@ fun FileListItem(
     getVisibleFileCount: (File) -> Int,
     isVault: Boolean,
     inUseFiles: Set<String>,
-    recentlyEncryptedFiles: Set<String>
+    recentlyEncryptedFiles: Set<String>,
+    selectionMode: Boolean,
+    selectedFiles: Set<File>,
+    onToggleFileSelection: (File) -> Unit,
+    onFileLongClick: (File) -> Unit
 ) {
     val displayName = if (isVault) file.name.removeSuffix(".enc") else file.name
     val itemCount = if (file.isDirectory) getVisibleFileCount(file) else 0
     val isDimmed = file.isDirectory && itemCount == 0
     val contentColor = if (isDimmed) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.onSurface
     val isFileInUse = inUseFiles.contains(displayName)
+    val isSelected = selectedFiles.contains(file)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { if (file.isDirectory) onFolderClick(file) else onFileClick(file) }
+            .combinedClickable(
+                onClick = {
+                    if (selectionMode) {
+                        if (!file.isDirectory) onToggleFileSelection(file)
+                    } else {
+                        if (file.isDirectory) onFolderClick(file) else onFileClick(file)
+                    }
+                },
+                onLongClick = { if (!isVault && !file.isDirectory) onFileLongClick(file) }
+            )
+            .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent)
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -202,16 +236,33 @@ fun FileListItem(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ImageGridItem(file: File, onFileClick: (File) -> Unit, isVault: Boolean, inUseFiles: Set<String>) {
+fun ImageGridItem(
+    file: File,
+    onFileClick: (File) -> Unit,
+    isVault: Boolean,
+    inUseFiles: Set<String>,
+    selectionMode: Boolean,
+    selectedFiles: Set<File>,
+    onToggleFileSelection: (File) -> Unit,
+    onFileLongClick: (File) -> Unit
+) {
     val displayName = if (isVault) file.name.removeSuffix(".enc") else file.name
     val isFileInUse = inUseFiles.contains(displayName)
+    val isSelected = selectedFiles.contains(file)
 
     Card(
         modifier = Modifier
             .padding(4.dp)
-            .clickable { onFileClick(file) },
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            .combinedClickable(
+                onClick = {
+                    if (selectionMode) onToggleFileSelection(file) else onFileClick(file)
+                },
+                onLongClick = { if (!isVault) onFileLongClick(file) }
+            ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
     ) {
         Box(modifier = Modifier.height(128.dp)) {
             val painter = if (isVault) {
@@ -272,7 +323,7 @@ fun MainScreen(
     fileToDeleteAfterEncryption: File?,
     inUseFiles: Set<String>,
     recentlyEncryptedFiles: Set<String>,
-    onEncryptFile: (File) -> Unit,
+    onEncryptFiles: (List<File>) -> Unit, // Modificado para aceptar una lista
     onDecryptAndOpenFile: (File) -> Unit,
     onDeleteTempFile: (File) -> Unit,
     onFolderClick: (File) -> Unit,
@@ -295,15 +346,27 @@ fun MainScreen(
         NavItem("Explorador", Icons.AutoMirrored.Filled.Article)
     )
 
+    // Estado para el modo de selección
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedFiles by remember { mutableStateOf(emptySet<File>()) }
+
+    fun clearSelection() {
+        selectionMode = false
+        selectedFiles = emptySet()
+    }
+
+    // El BackHandler ahora también cierra el modo de selección
+    BackHandler(enabled = true) {
+        if (selectionMode) {
+            clearSelection()
+        } else if (!onNavigateBack(selectedTab == 0)) {
+            // Lógica para salir de la app
+        }
+    }
+
     var showOpenDialog by remember { mutableStateOf<File?>(null) }
     var showDeleteTempFileDialog by remember { mutableStateOf<File?>(null) }
     var showEncryptDialog by remember { mutableStateOf<File?>(null) }
-
-    BackHandler(enabled = true) {
-        if (!onNavigateBack(selectedTab == 0)) {
-            // Si no se puede navegar hacia atrás, el usuario podría querer salir de la app
-        }
-    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -318,24 +381,47 @@ fun MainScreen(
             modifier = Modifier.fillMaxSize(),
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
             topBar = {
-                TopAppBar(
-                    title = { Text(navItems[selectedTab].title) },
-                    navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(Icons.Default.Menu, contentDescription = "Menú")
+                if (selectionMode) {
+                    TopAppBar(
+                        title = { Text("${selectedFiles.size} seleccionados") },
+                        navigationIcon = {
+                            IconButton(onClick = { clearSelection() }) {
+                                Icon(Icons.Default.Close, contentDescription = "Cerrar selección")
+                            }
                         }
-                    }
-                )
+                    )
+                } else {
+                    TopAppBar(
+                        title = { Text(navItems[selectedTab].title) },
+                        navigationIcon = {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                Icon(Icons.Default.Menu, contentDescription = "Menú")
+                            }
+                        }
+                    )
+                }
             },
             bottomBar = {
-                NavigationBar {
-                    navItems.forEachIndexed { index, item ->
-                        NavigationBarItem(
-                            icon = { Icon(item.icon, contentDescription = item.title) },
-                            label = { Text(item.title) },
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index }
-                        )
+                if (!selectionMode) { // Oculta la barra de navegación en modo selección
+                    NavigationBar {
+                        navItems.forEachIndexed { index, item ->
+                            NavigationBarItem(
+                                icon = { Icon(item.icon, contentDescription = item.title) },
+                                label = { Text(item.title) },
+                                selected = selectedTab == index,
+                                onClick = { selectedTab = index }
+                            )
+                        }
+                    }
+                }
+            },
+            floatingActionButton = {
+                if (selectionMode && selectedFiles.isNotEmpty()) {
+                    FloatingActionButton(onClick = {
+                        onEncryptFiles(selectedFiles.toList())
+                        clearSelection()
+                    }) {
+                        Icon(Icons.Default.Lock, contentDescription = "Cifrar archivos seleccionados")
                     }
                 }
             }
@@ -359,12 +445,16 @@ fun MainScreen(
                         onPathClick = onVaultPathClick,
                         isVault = true,
                         inUseFiles = inUseFiles,
-                        recentlyEncryptedFiles = recentlyEncryptedFiles
+                        recentlyEncryptedFiles = recentlyEncryptedFiles,
+                        selectionMode = false, // Deshabilitado para la bóveda por ahora
+                        selectedFiles = emptySet(),
+                        onToggleFileSelection = {},
+                        onFileLongClick = {}
                     )
 
                     1 -> FileExplorerScreen(
                         files = unencryptedFiles,
-                        onFileClick = { showEncryptDialog = it },
+                        onFileClick = { file -> if (!selectionMode) showEncryptDialog = file },
                         onFolderClick = onFolderClick,
                         getVisibleFileCount = getVisibleFileCount,
                         currentPath = currentPath,
@@ -373,30 +463,50 @@ fun MainScreen(
                         onPathClick = onPathClick,
                         isVault = false,
                         inUseFiles = emptySet(),
-                        recentlyEncryptedFiles = emptySet()
+                        recentlyEncryptedFiles = emptySet(),
+                        selectionMode = selectionMode,
+                        selectedFiles = selectedFiles,
+                        onToggleFileSelection = { file ->
+                            selectedFiles = if (selectedFiles.contains(file)) {
+                                selectedFiles - file
+                            } else {
+                                selectedFiles + file
+                            }
+                            if (selectedFiles.isEmpty()) {
+                                selectionMode = false
+                            }
+                        },
+                        onFileLongClick = { file ->
+                            if (!selectionMode) {
+                                selectionMode = true
+                                selectedFiles = setOf(file)
+                            }
+                        }
                     )
                 }
             }
         }
     }
 
-    // --- Diálogos ---
+    // --- Diálogos (sin cambios por ahora, pero se podrían deshabilitar en modo selección) ---
 
-    showEncryptDialog?.let { file ->
-        AlertDialog(
-            onDismissRequest = { showEncryptDialog = null },
-            title = { Text("Cifrar archivo", fontSize = 20.sp) },
-            text = { Text("¿Deseas cifrar y mover este archivo a la bóveda?", fontSize = 16.sp) },
-            confirmButton = {
-                TextButton(onClick = {
-                    onEncryptFile(file)
-                    showEncryptDialog = null
-                }) { Text("Cifrar") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEncryptDialog = null }) { Text("Cancelar") }
-            }
-        )
+    if (!selectionMode) {
+        showEncryptDialog?.let { file ->
+            AlertDialog(
+                onDismissRequest = { showEncryptDialog = null },
+                title = { Text("Cifrar archivo", fontSize = 20.sp) },
+                text = { Text("¿Deseas cifrar y mover este archivo a la bóveda?", fontSize = 16.sp) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        onEncryptFiles(listOf(file)) // Reutilizamos el nuevo onEncryptFiles
+                        showEncryptDialog = null
+                    }) { Text("Cifrar") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showEncryptDialog = null }) { Text("Cancelar") }
+                }
+            )
+        }
     }
 
     fileToDeleteAfterEncryption?.let {

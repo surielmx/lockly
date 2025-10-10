@@ -11,6 +11,7 @@ val Orange80 = Color(0xFFF59E42) // acento de acción
 val Grey80 = Color(0xFF64748B) // bordes y elementos de UI secundarios
 val Yellow80 = Color(0xFFFBBF24) // Acento para "En uso"
 val OffWhite = Color(0xFFE2E8F0) // Color para texto principal
+val White = Color(0xFFFFFFFF)
 
 val Blue40 = Color(0xFF0F172A)
 val BlueGrey40 = Color(0xFF1E293B)

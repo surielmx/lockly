@@ -51,7 +51,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var hasPermissions by mutableStateOf(false)
 
     // --- Diálogos ---
-    private val _showDeleteConfirmationDialog = MutableStateFlow<File?>(null)
+    private val _showDeleteConfirmationDialog = MutableStateFlow<List<File>>(emptyList())
     val showDeleteConfirmationDialog = _showDeleteConfirmationDialog.asStateFlow()
 
     // --- Canal para eventos de UI ---
@@ -165,34 +165,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Lógica de Cifrado y Descifrado ---
 
-    fun encryptFile(originalFile: File) {
+    fun encryptFiles(originalFiles: List<File>) {
         viewModelScope.launch(coroutineExceptionHandler) {
-            _encryptingFiles.update { it + originalFile.toUri() }
-            try {
-                val context = getApplication<Application>()
-                val encryptedFile = VaultManager.importAndEncryptFile(context, originalFile)
-                if (encryptedFile != null) {
-                    loadVaultFiles()
-                    _showDeleteConfirmationDialog.value = originalFile
-                    _recentlyEncryptedFiles.update { it + encryptedFile.absolutePath }
-                } else {
-                    showSnackbarMessage("Error al cifrar '${originalFile.name}'")
+            val uris = originalFiles.map { it.toUri() }.toSet()
+            _encryptingFiles.update { it + uris }
+
+            val successfullyEncryptedOriginals = mutableListOf<File>()
+
+            for (originalFile in originalFiles) {
+                try {
+                    val context = getApplication<Application>()
+                    val encryptedFile = VaultManager.importAndEncryptFile(context, originalFile)
+                    if (encryptedFile != null) {
+                        successfullyEncryptedOriginals.add(originalFile)
+                        _recentlyEncryptedFiles.update { it + encryptedFile.absolutePath }
+                    } else {
+                        showSnackbarMessage("Error al cifrar '${originalFile.name}'")
+                    }
+                } catch (e: Exception) {
+                    showSnackbarMessage("Error al procesar '${originalFile.name}'")
+                    Log.e(TAG, "Error durante el cifrado de ${originalFile.name}", e)
                 }
-            } finally {
-                _encryptingFiles.update { it - originalFile.toUri() }
+            }
+
+            _encryptingFiles.update { it - uris }
+            loadVaultFiles()
+
+            if (successfullyEncryptedOriginals.isNotEmpty()) {
+                _showDeleteConfirmationDialog.value = successfullyEncryptedOriginals
             }
         }
     }
 
-    fun deleteOriginalFile(originalFile: File) {
+    fun deleteOriginalFiles(originalFiles: List<File>) {
         viewModelScope.launch(coroutineExceptionHandler) {
-            if (originalFile.exists() && originalFile.delete()) {
-                showSnackbarMessage("Archivo original eliminado con éxito.")
-                loadUnencryptedFiles()
-            } else {
-                showSnackbarMessage("No se pudo eliminar el archivo original.")
+            var deletedCount = 0
+            for (file in originalFiles) {
+                if (file.exists() && file.delete()) {
+                    deletedCount++
+                }
             }
-            _showDeleteConfirmationDialog.value = null
+            showSnackbarMessage("$deletedCount de ${originalFiles.size} archivos originales eliminados.")
+            loadUnencryptedFiles()
+            _showDeleteConfirmationDialog.value = emptyList()
         }
     }
 
@@ -236,6 +251,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun dismissDeleteConfirmationDialog() {
-        _showDeleteConfirmationDialog.value = null
+        _showDeleteConfirmationDialog.value = emptyList()
     }
 }

@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-
+    <!-- Base application theme. -->
     <style name="Theme.Lockly" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <!-- Splash Screen Theme -->
+    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/ic_launcher_background_dark</item>
+        <item name="windowSplashScreenAnimatedIcon">@android:drawable/ic_lock_lock</item>
+        <item name="postSplashScreenTheme">@style/Theme.Lockly</item>
+    </style>
 </resources>

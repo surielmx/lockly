@@ -48,7 +48,7 @@ class MainActivity : ComponentActivity() {
                 val currentPath by viewModel.currentPath.collectAsState()
                 val currentVaultPath by viewModel.currentVaultPath.collectAsState()
                 val snackbarHostState = remember { SnackbarHostState() }
-                val fileToDelete by viewModel.showDeleteConfirmationDialog.collectAsState()
+                val filesToDelete by viewModel.showDeleteConfirmationDialog.collectAsState()
                 val recentlyEncryptedFiles by viewModel.recentlyEncryptedFiles.collectAsState()
                 val inUseFiles by viewModel.inUseFiles.collectAsState()
 
@@ -70,15 +70,18 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (viewModel.hasPermissions) {
+                    // Pasamos la lista de archivos a eliminar al MainScreen
+                    val fileToDelete = if (filesToDelete.isNotEmpty()) filesToDelete.first() else null
+
                     MainScreen(
                         snackbarHostState = snackbarHostState,
                         unencryptedFiles = unencryptedFiles,
                         vaultFiles = vaultFiles,
                         creatingTempFile = creatingTempFile,
-                        fileToDeleteAfterEncryption = fileToDelete,
-                        inUseFiles = inUseFiles, // Nuevo
+                        fileToDeleteAfterEncryption = fileToDelete, // Adaptado para la UI, que aún espera un solo archivo
+                        inUseFiles = inUseFiles,
                         recentlyEncryptedFiles = recentlyEncryptedFiles,
-                        onEncryptFile = viewModel::encryptFile,
+                        onEncryptFiles = viewModel::encryptFiles, // Conectado al nuevo método
                         onDecryptAndOpenFile = viewModel::decryptAndOpenFile,
                         onDeleteTempFile = viewModel::deleteTempFile,
                         onFolderClick = viewModel::onFolderClick,
@@ -89,7 +92,11 @@ class MainActivity : ComponentActivity() {
                         vaultRootPath = viewModel.vaultRootPath,
                         onPathClick = viewModel::onPathClick,
                         onVaultPathClick = viewModel::onVaultPathClick,
-                        onDeleteOriginalFile = viewModel::deleteOriginalFile,
+                        onDeleteOriginalFile = { // Modificado para llamar a la nueva función de borrado múltiple
+                            if (filesToDelete.isNotEmpty()) {
+                                viewModel.deleteOriginalFiles(filesToDelete)
+                            }
+                         },
                         onDismissDeleteConfirmation = viewModel::dismissDeleteConfirmationDialog,
                         onNavigateBack = viewModel::navigateBack
                     )
