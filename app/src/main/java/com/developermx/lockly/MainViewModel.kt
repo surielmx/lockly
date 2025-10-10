@@ -40,8 +40,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val currentVaultPath = _currentVaultPath.asStateFlow()
 
     // --- Estados de la UI y Tareas en Progreso ---
-    private val _encryptingFiles = MutableStateFlow<Set<Uri>>(emptySet())
-    val encryptingFiles = _encryptingFiles.asStateFlow()
     private val _creatingTempFile = MutableStateFlow<Set<String>>(emptySet())
     val creatingTempFile = _creatingTempFile.asStateFlow()
     private val _recentlyEncryptedFiles = MutableStateFlow<Set<String>>(emptySet())
@@ -167,9 +165,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun encryptFiles(originalFiles: List<File>) {
         viewModelScope.launch(coroutineExceptionHandler) {
-            val uris = originalFiles.map { it.toUri() }.toSet()
-            _encryptingFiles.update { it + uris }
-
             val successfullyEncryptedOriginals = mutableListOf<File>()
 
             for (originalFile in originalFiles) {
@@ -188,7 +183,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            _encryptingFiles.update { it - uris }
             loadVaultFiles()
 
             if (successfullyEncryptedOriginals.isNotEmpty()) {

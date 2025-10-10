@@ -34,7 +34,7 @@ class MainActivity : FragmentActivity() {
     private val filePickerLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
+        if (result.resultCode == RESULT_OK) {
             val uri: Uri? = result.data?.data
             uri?.let { handleSelectedFile(it) }
         }
@@ -45,7 +45,7 @@ class MainActivity : FragmentActivity() {
         val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
         val vaultFile = File(filesDir, "vault_${System.currentTimeMillis()}")
         val outputStream = FileOutputStream(vaultFile)
-        val metadata = VaultManager.encryptFile(this, uri, outputStream, fileName, mimeType)
+        VaultManager.encryptFile(this, uri, outputStream, fileName, mimeType)
         // Aquí podrías guardar metadata en una base de datos o lista
     }
 
@@ -64,10 +64,6 @@ class MainActivity : FragmentActivity() {
         val executor = ContextCompat.getMainExecutor(this)
         biometricPrompt = BiometricPrompt(this, executor,
             object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    super.onAuthenticationSucceeded(result)
-                    // Aquí puedes permitir desencriptar el archivo
-                }
             })
         promptInfo = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Desbloquear archivo")

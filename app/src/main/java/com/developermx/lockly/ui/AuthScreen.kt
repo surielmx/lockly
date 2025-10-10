@@ -48,12 +48,6 @@ fun AuthScreen(
                     super.onAuthenticationSucceeded(result)
                     onAuthenticated()
                 }
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    super.onAuthenticationError(errorCode, errString)
-                }
-                override fun onAuthenticationFailed() {
-                    super.onAuthenticationFailed()
-                }
             })
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Autenticación biométrica")
