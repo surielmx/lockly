@@ -98,7 +98,8 @@ class MainActivity : ComponentActivity() {
                             }
                          },
                         onDismissDeleteConfirmation = viewModel::dismissDeleteConfirmationDialog,
-                        onNavigateBack = viewModel::navigateBack
+                        onNavigateBack = viewModel::navigateBack,
+                        onShareFile = viewModel::shareFile
                     )
                 } else {
                     PermissionRequestScreen {

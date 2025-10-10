@@ -2,30 +2,32 @@ package com.developermx.lockly
 
 import android.app.Application
 import android.content.Intent
-import android.net.Uri
-import android.os.Environment
-import android.util.Log
+import android.media.MediaScannerConnection
 import android.webkit.MimeTypeMap
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
+import java.io.File
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.core.content.FileProvider
-import androidx.core.net.toUri
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.CoroutineExceptionHandler
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
-import java.io.File
+import android.os.Environment
+import androidx.core.content.FileProvider
 import java.io.FileOutputStream
+import kotlinx.coroutines.CoroutineExceptionHandler
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val vaultRoot = File(application.filesDir, "vault").apply { mkdirs() }
     val vaultRootPath: String get() = vaultRoot.absolutePath
+
+    // Directorio público para archivos temporales
+    private val publicTempDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "Lockly").apply { mkdirs() }
 
     // --- Estados para el Explorador de Archivos Externos ---
     private val _unencryptedFiles = MutableStateFlow<List<File>>(emptyList())
@@ -82,6 +84,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun filterFile(file: File): Boolean {
         if (file.name.startsWith(".")) return false
+
+        // Ocultar la carpeta pública de Lockly en el explorador (ahora ignora mayúsculas/minúsculas)
+        if (file.absolutePath.equals(publicTempDir.absolutePath, ignoreCase = true)) {
+            return false
+        }
+
         if (!file.absolutePath.startsWith(vaultRoot.absolutePath)) {
             val name = file.name.lowercase()
             if (file.isDirectory && (name == "android" || name.startsWith("com."))) {
@@ -111,8 +119,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun loadInUseFiles() {
         viewModelScope.launch {
-            val cacheDir = getApplication<Application>().cacheDir
-            _inUseFiles.value = cacheDir.listFiles()?.map { it.name }?.toSet() ?: emptySet()
+            // Ahora busca en el directorio público
+            _inUseFiles.value = publicTempDir.listFiles()?.map { it.name }?.toSet() ?: emptySet()
         }
     }
 
@@ -210,36 +218,83 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _creatingTempFile.update { it + file.absolutePath }
             try {
                 val context = getApplication<Application>()
-                val tempFile = File(context.cacheDir, file.name.removeSuffix(".enc"))
+                val tempFile = File(publicTempDir, VaultManager.getOriginalFileName(file))
 
                 file.inputStream().use { inputStream ->
                     FileOutputStream(tempFile).use { outputStream ->
                         VaultManager.decryptStream(context, inputStream, outputStream)
                     }
                 }
+
+                // Notificar al MediaStore para que el archivo sea visible en otras apps
+                MediaScannerConnection.scanFile(
+                    context,
+                    arrayOf(tempFile.absolutePath),
+                    arrayOf(MimeTypeMap.getSingleton().getMimeTypeFromExtension(tempFile.extension))
+                ) { _, uri ->
+                    Log.i(TAG, "MediaScanner completado para ${tempFile.name}. URI: $uri")
+                }
+
                 _inUseFiles.update { it + tempFile.name }
                 _recentlyEncryptedFiles.update { it - file.absolutePath }
 
-                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", tempFile)
-                val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(tempFile.extension)
-                val openIntent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, mimeType)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                _openFileRequest.emit(openIntent)
+                showSnackbarMessage("Archivo guardado en Documentos/Lockly")
+
             } finally {
                 _creatingTempFile.update { it - file.absolutePath }
             }
         }
     }
 
+    fun shareFile(file: File) {
+        viewModelScope.launch(coroutineExceptionHandler) {
+            _creatingTempFile.update { it + file.absolutePath }
+            try {
+                val context = getApplication<Application>()
+                val tempFileUri = VaultManager.createTempFileForSharing(context, file)
+
+                if (tempFileUri != null) {
+                    val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(
+                        File(VaultManager.getOriginalFileName(file)).extension
+                    )
+
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                        putExtra(Intent.EXTRA_STREAM, tempFileUri)
+                        type = mimeType
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    _openFileRequest.emit(Intent.createChooser(shareIntent, "Compartir archivo"))
+                } else {
+                    showSnackbarMessage("No se pudo compartir el archivo.")
+                }
+            } finally {
+                _creatingTempFile.update { it - file.absolutePath }
+            }
+        }
+    }
+
+
     fun deleteTempFile(file: File) {
         viewModelScope.launch {
-            val tempFile = File(getApplication<Application>().cacheDir, file.name.removeSuffix(".enc"))
+            val context = getApplication<Application>()
+            val tempFile = File(publicTempDir, VaultManager.getOriginalFileName(file))
             if (tempFile.exists()) {
                 if (tempFile.delete()) {
+                    // Notificar al MediaStore que el archivo fue eliminado
+                    MediaScannerConnection.scanFile(
+                        context,
+                        arrayOf(tempFile.absolutePath),
+                        null
+                    ) { _, _ ->
+                        Log.i(TAG, "MediaScanner completado para eliminación de ${tempFile.name}")
+                    }
                     _inUseFiles.update { it - tempFile.name }
+                     showSnackbarMessage("Copia temporal eliminada.")
+                } else {
+                    showSnackbarMessage("Error al eliminar la copia temporal.")
                 }
+            } else {
+                Log.w(TAG, "Se intentó eliminar un archivo temporal que no existe: ${tempFile.absolutePath}")
             }
         }
     }

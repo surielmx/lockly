@@ -4,11 +4,13 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.util.Log
+import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import com.google.crypto.tink.Aead
 import com.google.crypto.tink.aead.AeadConfig
 import com.lockly.vault.KeystoreHelper
 import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.GeneralSecurityException
@@ -68,12 +70,33 @@ object VaultManager {
         return KeystoreHelper.getOrCreateMasterKey(context).getPrimitive(Aead::class.java)
     }
 
+    fun getOriginalFileName(encryptedFile: File): String {
+        return encryptedFile.name.removeSuffix(".enc")
+    }
+
+
     fun decryptStream(context: Context, inputStream: InputStream, outputStream: OutputStream) {
         val aead = getAead(context)
         val cipherText = inputStream.readBytes()
         val decryptedText = aead.decrypt(cipherText, ByteArray(0))
         outputStream.write(decryptedText)
     }
+
+    fun createTempFileForSharing(context: Context, encryptedFile: File): Uri? {
+        return try {
+            val tempFile = File(context.cacheDir, getOriginalFileName(encryptedFile))
+            encryptedFile.inputStream().use { inputStream ->
+                FileOutputStream(tempFile).use { outputStream ->
+                    decryptStream(context, inputStream, outputStream)
+                }
+            }
+            FileProvider.getUriForFile(context, "${context.packageName}.provider", tempFile)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error creando archivo temporal para compartir", e)
+            null
+        }
+    }
+
 
     fun importAndEncryptFile(context: Context, originalFile: File): File? {
         Log.d(TAG, "Iniciando proceso de cifrado para: ${originalFile.name}")

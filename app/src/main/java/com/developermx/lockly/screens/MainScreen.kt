@@ -336,7 +336,8 @@ fun MainScreen(
     onVaultPathClick: (String) -> Unit,
     onDeleteOriginalFile: (File) -> Unit,
     onDismissDeleteConfirmation: () -> Unit,
-    onNavigateBack: (Boolean) -> Boolean
+    onNavigateBack: (Boolean) -> Boolean,
+    onShareFile: (File) -> Unit
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -534,17 +535,27 @@ fun MainScreen(
                         CircularProgressIndicator()
                     }
                 } else {
-                    Text("Se creará una copia temporal y se abrirá con otra aplicación. ¿Continuar?", fontSize = 16.sp)
+                    Text("Se creará una copia temporal para usarla en otras aplicaciones. ¿Qué deseas hacer?", fontSize = 16.sp)
                 }
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        onDecryptAndOpenFile(file)
-                        showOpenDialog = null
-                    },
-                    enabled = !isLoading
-                ) { Text("Abrir") }
+                Row {
+                    TextButton(
+                        onClick = {
+                            onDecryptAndOpenFile(file)
+                            showOpenDialog = null
+                        },
+                        enabled = !isLoading
+                    ) { Text("Abrir") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(
+                        onClick = {
+                            onShareFile(file)
+                            showOpenDialog = null
+                        },
+                        enabled = !isLoading
+                    ) { Text("Compartir") }
+                }
             },
             dismissButton = {
                 TextButton(
@@ -554,6 +565,7 @@ fun MainScreen(
             }
         )
     }
+
 
     showDeleteTempFileDialog?.let { file ->
         AlertDialog(
