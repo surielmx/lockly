@@ -149,7 +149,7 @@ fun AuthScreen(
                         if (password.length < 6) {
                             error = "La contraseña debe tener al menos 6 caracteres."
                         } else if (!hasPassword) {
-                            VaultManager.savePassword(context, password)
+                            VaultManager.savePasswordAndUserId(context, password)
                             savePasswordToPrefs(password)
                             successMessage = "Contraseña creada. Puedes usar biometría o ingresar la contraseña para acceder."
                             showBiometricButton = true

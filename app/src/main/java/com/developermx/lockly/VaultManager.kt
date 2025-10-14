@@ -16,12 +16,16 @@ import java.io.OutputStream
 import java.security.GeneralSecurityException
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.security.spec.KeySpec
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 
 object VaultManager {
 
     private const val VAULT_DIR = "vault"
     private const val PASSWORD_FILE = "_vlt_pwd.bin"
     private const val SALT_FILE = "_vlt_slt.bin"
+    private const val USER_ID_FILE = "_vlt_uid.bin"
     private const val TAG = "VaultManager"
 
     init {
@@ -32,7 +36,7 @@ object VaultManager {
         }
     }
 
-    // --- Métodos de Contraseña ---
+    // --- Métodos de Contraseña y UserID ---
 
     private fun hashPassword(password: String, salt: ByteArray): String {
         val md = MessageDigest.getInstance("SHA-256")
@@ -41,18 +45,29 @@ object VaultManager {
         return hashed.joinToString("") { "%02x".format(it) }
     }
 
+    private fun generateUserId(password: String, salt: ByteArray): String {
+        val spec: KeySpec = PBEKeySpec(password.toCharArray(), salt, 65536, 256) // 256 bits for SHA-256
+        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        val key = factory.generateSecret(spec)
+        // Convert to hex and take a substring to get 40-64 chars
+        return key.encoded.joinToString("") { "%02x".format(it) }.substring(0, 50)
+    }
+
     fun hasPassword(context: Context): Boolean {
         val file = File(context.filesDir, PASSWORD_FILE)
         val saltFile = File(context.filesDir, SALT_FILE)
         return file.exists() && saltFile.exists()
     }
 
-    fun savePassword(context: Context, password: String) {
+    fun savePasswordAndUserId(context: Context, password: String) {
         val salt = ByteArray(16)
         SecureRandom().nextBytes(salt)
         File(context.filesDir, SALT_FILE).writeBytes(salt)
         val hash = hashPassword(password, salt)
         File(context.filesDir, PASSWORD_FILE).writeText(hash)
+
+        val userId = generateUserId(password, salt)
+        File(context.filesDir, USER_ID_FILE).writeText(userId)
     }
 
     fun validatePassword(context: Context, password: String): Boolean {
@@ -63,6 +78,12 @@ object VaultManager {
         val hash = hashPassword(password, salt)
         return file.readText() == hash
     }
+    
+    fun getUserId(context: Context): String? {
+        val file = File(context.filesDir, USER_ID_FILE)
+        return if (file.exists()) file.readText() else null
+    }
+
 
     // --- Métodos de Cifrado de Archivos ---
 
