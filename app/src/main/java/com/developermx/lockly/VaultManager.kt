@@ -31,7 +31,7 @@ object VaultManager {
     init {
         try {
             AeadConfig.register()
-        } catch (e: GeneralSecurityException) {
+        } catch (_: GeneralSecurityException) {
             // Ignorar si ya está registrado
         }
     }
@@ -78,12 +78,6 @@ object VaultManager {
         val hash = hashPassword(password, salt)
         return file.readText() == hash
     }
-    
-    fun getUserId(context: Context): String? {
-        val file = File(context.filesDir, USER_ID_FILE)
-        return if (file.exists()) file.readText() else null
-    }
-
 
     // --- Métodos de Cifrado de Archivos ---
 

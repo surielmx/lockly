@@ -1,7 +1,5 @@
 package com.developermx.lockly.ui
 
-import android.content.Context
-import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -19,9 +17,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
 import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKeys
+import androidx.security.crypto.MasterKey
 import com.developermx.lockly.VaultManager
 import androidx.compose.ui.draw.shadow
 
@@ -58,23 +57,29 @@ fun AuthScreen(
     }
 
     fun savePasswordToPrefs(password: String) {
-        val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
         val prefs = EncryptedSharedPreferences.create(
-            "vault_prefs",
-            masterKeyAlias,
             context,
+            "vault_prefs",
+            masterKey,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
-        prefs.edit().putString("vault_password", password).apply()
+        prefs.edit {
+            putString("vault_password", password)
+        }
     }
 
     fun getPasswordFromPrefs(): String {
-        val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
         val prefs = EncryptedSharedPreferences.create(
-            "vault_prefs",
-            masterKeyAlias,
             context,
+            "vault_prefs",
+            masterKey,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
