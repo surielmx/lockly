@@ -202,7 +202,11 @@ fun FileListItem(
                     if (selectionMode) {
                         if (!file.isDirectory) onToggleFileSelection(file)
                     } else {
-                        if (file.isDirectory) onFolderClick(file) else onFileClick(file)
+                        if (file.isDirectory) {
+                            if (itemCount > 0) onFolderClick(file)
+                        } else {
+                            onFileClick(file)
+                        }
                     }
                 },
                 onLongClick = { if (!isVault && !file.isDirectory) onFileLongClick(file) }
@@ -305,7 +309,7 @@ fun FolderGridItem(folder: File, onFolderClick: (File) -> Unit, getVisibleFileCo
     Card(
         modifier = Modifier
             .padding(4.dp)
-            .clickable { onFolderClick(folder) },
+            .clickable { if (itemCount > 0) onFolderClick(folder) },
         colors = CardDefaults.cardColors(containerColor = if(isDimmed) MaterialTheme.colorScheme.surface.copy(alpha=0.38f) else MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(
