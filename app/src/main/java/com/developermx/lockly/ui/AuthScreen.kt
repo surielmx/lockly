@@ -2,19 +2,35 @@ package com.developermx.lockly.ui
 
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
@@ -22,7 +38,6 @@ import androidx.fragment.app.FragmentActivity
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.developermx.lockly.VaultManager
-import androidx.compose.ui.draw.shadow
 
 @Composable
 fun AuthScreen(
@@ -54,6 +69,13 @@ fun AuthScreen(
             .setNegativeButtonText("Cancelar")
             .build()
         biometricPrompt.authenticate(promptInfo)
+    }
+
+    // Show biometric prompt automatically if a password exists
+    LaunchedEffect(hasPassword) {
+        if (hasPassword) {
+            showBiometricPrompt()
+        }
     }
 
     fun savePasswordToPrefs(password: String) {
@@ -137,11 +159,11 @@ fun AuthScreen(
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
-                    colors = TextFieldDefaults.colors(
-                        focusedIndicatorColor = MaterialTheme.colorScheme.primary,
-                        unfocusedIndicatorColor = MaterialTheme.colorScheme.onSurface,
+                    colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = MaterialTheme.colorScheme.onSurface,
                         unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.onSurface,
                         focusedLabelColor = MaterialTheme.colorScheme.onBackground,
                         unfocusedLabelColor = MaterialTheme.colorScheme.onBackground
                     )
@@ -151,8 +173,8 @@ fun AuthScreen(
                     onClick = {
                         successMessage = ""
                         error = ""
-                        if (password.length < 6) {
-                            error = "La contraseña debe tener al menos 6 caracteres."
+                        if (password.length < 8) {
+                            error = "La contraseña debe tener al menos 8 caracteres."
                         } else if (!hasPassword) {
                             VaultManager.savePasswordAndUserId(context, password)
                             savePasswordToPrefs(password)
@@ -161,6 +183,9 @@ fun AuthScreen(
                             password = ""
                         } else {
                             if (VaultManager.validatePassword(context, password)) {
+                                // --- FIX: Ensure User ID exists to prevent crash on upload ---
+                                VaultManager.ensureUserIdExists(context, password)
+                                // --- End of FIX ---
                                 savePasswordToPrefs(password)
                                 onAuthenticated()
                             } else {

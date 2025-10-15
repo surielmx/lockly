@@ -14,6 +14,13 @@ import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.net.toUri
+import androidx.lifecycle.Observer
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.workDataOf
+import com.developermx.lockly.workers.FileUploadWorker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -26,35 +33,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val vaultRoot = File(application.filesDir, "vault").apply { mkdirs() }
     val vaultRootPath: String get() = vaultRoot.absolutePath
 
-    // Directorio público para archivos temporales
     private val publicTempDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "Lockly").apply { mkdirs() }
 
-    // --- Estados para el Explorador de Archivos Externos ---
+    // --- File & Vault States ---
     private val _unencryptedFiles = MutableStateFlow<List<File>>(emptyList())
     val unencryptedFiles = _unencryptedFiles.asStateFlow()
     private val _currentPath = MutableStateFlow(Environment.getExternalStorageDirectory())
     val currentPath = _currentPath.asStateFlow()
-
-    // --- Estados para el Explorador de la Bóveda ---
     private val _vaultFiles = MutableStateFlow<List<File>>(emptyList())
     val vaultFiles = _vaultFiles.asStateFlow()
     private val _currentVaultPath = MutableStateFlow(vaultRoot)
     val currentVaultPath = _currentVaultPath.asStateFlow()
 
-    // --- Estados de la UI y Tareas en Progreso ---
+    // --- UI & Progress States ---
     private val _creatingTempFile = MutableStateFlow<Set<String>>(emptySet())
     val creatingTempFile = _creatingTempFile.asStateFlow()
     private val _recentlyEncryptedFiles = MutableStateFlow<Set<String>>(emptySet())
     val recentlyEncryptedFiles = _recentlyEncryptedFiles.asStateFlow()
     private val _inUseFiles = MutableStateFlow<Set<String>>(emptySet())
     val inUseFiles = _inUseFiles.asStateFlow()
+    private val _uploadedFiles = MutableStateFlow<Set<String>>(emptySet()) // New state for uploaded files
+    val uploadedFiles = _uploadedFiles.asStateFlow()
     var hasPermissions by mutableStateOf(false)
 
-    // --- Diálogos ---
+    // --- Dialogs ---
     private val _showDeleteConfirmationDialog = MutableStateFlow<List<File>>(emptyList())
     val showDeleteConfirmationDialog = _showDeleteConfirmationDialog.asStateFlow()
 
-    // --- Canal para eventos de UI ---
+    // --- UI Events Channel ---
     private val _snackbarMessage = MutableSharedFlow<String>()
     val snackbarMessage = _snackbarMessage.asSharedFlow()
     private val _openFileRequest = MutableSharedFlow<Intent>()
@@ -62,8 +68,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val TAG = "MainViewModel"
     private val coroutineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
-        Log.e(TAG, "Excepción no controlada en una corrutina", throwable)
-        showSnackbarMessage("Ocurrió un error inesperado.")
+        Log.e(TAG, "Uncaught exception in coroutine", throwable)
+        showSnackbarMessage("An unexpected error occurred.")
     }
 
     init {
@@ -80,21 +86,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- Lógica de Navegación y Filtrado ---
+    // --- Navigation & Filtering Logic ---
 
     private fun filterFile(file: File): Boolean {
         if (file.name.startsWith(".")) return false
-
-        // Ocultar la carpeta pública de Lockly en el explorador (ahora ignora mayúsculas/minúsculas)
-        if (file.absolutePath.equals(publicTempDir.absolutePath, ignoreCase = true)) {
-            return false
-        }
-
+        if (file.absolutePath.equals(publicTempDir.absolutePath, ignoreCase = true)) return false
         if (!file.absolutePath.startsWith(vaultRoot.absolutePath)) {
             val name = file.name.lowercase()
-            if (file.isDirectory && (name == "android" || name.startsWith("com."))) {
-                return false
-            }
+            if (file.isDirectory && (name == "android" || name.startsWith("com."))) return false
         }
         return true
     }
@@ -119,7 +118,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun loadInUseFiles() {
         viewModelScope.launch {
-            // Ahora busca en el directorio público
             _inUseFiles.value = publicTempDir.listFiles()?.map { it.name }?.toSet() ?: emptySet()
         }
     }
@@ -169,7 +167,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- Lógica de Cifrado y Descifrado ---
+    // --- Encryption & Decryption Logic ---
 
     fun encryptFiles(originalFiles: List<File>) {
         viewModelScope.launch(coroutineExceptionHandler) {
@@ -182,6 +180,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (encryptedFile != null) {
                         successfullyEncryptedOriginals.add(originalFile)
                         _recentlyEncryptedFiles.update { it + encryptedFile.absolutePath }
+                        startFileUploadWorker(originalFile)
+                        showSnackbarMessage("Iniciando subida de '${originalFile.name}' a la nube.")
                     } else {
                         showSnackbarMessage("Error al cifrar '${originalFile.name}'")
                     }
@@ -197,6 +197,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _showDeleteConfirmationDialog.value = successfullyEncryptedOriginals
             }
         }
+    }
+
+    private fun startFileUploadWorker(originalFile: File) {
+        val context = getApplication<Application>()
+        val workManager = WorkManager.getInstance(context)
+
+        val inputData = workDataOf(FileUploadWorker.KEY_FILE_URI to originalFile.toUri().toString())
+
+        val uploadWorkRequest = OneTimeWorkRequestBuilder<FileUploadWorker>()
+            .setInputData(inputData)
+            .build()
+
+        workManager.enqueue(uploadWorkRequest)
+        Log.d(TAG, "FileUploadWorker enqueued for: ${originalFile.name} with ID: ${uploadWorkRequest.id}")
+
+        // Observe the result of the worker
+        workManager.getWorkInfoByIdLiveData(uploadWorkRequest.id).observeForever(object : Observer<WorkInfo?> {
+            override fun onChanged(workInfo: WorkInfo?) {
+                if (workInfo?.state == WorkInfo.State.SUCCEEDED) {
+                    val encryptedFileName = workInfo.outputData.getString(FileUploadWorker.KEY_OUTPUT_ENCRYPTED_FILE_NAME)
+                    if (!encryptedFileName.isNullOrEmpty()) {
+                        _uploadedFiles.update { it + encryptedFileName }
+                        Log.i(TAG, "Successfully uploaded: $encryptedFileName. Marked as uploaded.")
+                        showSnackbarMessage("'$encryptedFileName' se ha subido a la nube.")
+                        // Stop observing to avoid multiple triggers
+                        workManager.getWorkInfoByIdLiveData(uploadWorkRequest.id).removeObserver(this)
+                    }
+                } else if (workInfo?.state == WorkInfo.State.FAILED) {
+                    Log.e(TAG, "Upload worker failed for ${originalFile.name}")
+                    workManager.getWorkInfoByIdLiveData(uploadWorkRequest.id).removeObserver(this)
+                }
+            }
+        })
     }
 
     fun deleteOriginalFiles(originalFiles: List<File>) {
@@ -226,13 +259,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                // Notificar al MediaStore para que el archivo sea visible en otras apps
                 MediaScannerConnection.scanFile(
                     context,
                     arrayOf(tempFile.absolutePath),
                     arrayOf(MimeTypeMap.getSingleton().getMimeTypeFromExtension(tempFile.extension))
                 ) { _, uri ->
-                    Log.i(TAG, "MediaScanner completado para ${tempFile.name}. URI: $uri")
+                    Log.i(TAG, "MediaScanner completed for ${tempFile.name}. URI: $uri")
                 }
 
                 _inUseFiles.update { it + tempFile.name }
@@ -280,13 +312,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val tempFile = File(publicTempDir, VaultManager.getOriginalFileName(file))
             if (tempFile.exists()) {
                 if (tempFile.delete()) {
-                    // Notificar al MediaStore que el archivo fue eliminado
                     MediaScannerConnection.scanFile(
                         context,
                         arrayOf(tempFile.absolutePath),
                         null
                     ) { _, _ ->
-                        Log.i(TAG, "MediaScanner completado para eliminación de ${tempFile.name}")
+                        Log.i(TAG, "MediaScanner completed for deletion of ${tempFile.name}")
                     }
                     _inUseFiles.update { it - tempFile.name }
                      showSnackbarMessage("Copia temporal eliminada.")

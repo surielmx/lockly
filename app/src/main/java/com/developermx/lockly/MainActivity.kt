@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
                 val filesToDelete by viewModel.showDeleteConfirmationDialog.collectAsState()
                 val recentlyEncryptedFiles by viewModel.recentlyEncryptedFiles.collectAsState()
                 val inUseFiles by viewModel.inUseFiles.collectAsState()
+                val uploadedFiles by viewModel.uploadedFiles.collectAsState() // Collect the new state
 
                 LaunchedEffect(Unit) {
                     viewModel.snackbarMessage.collectLatest { message ->
@@ -70,7 +71,6 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (viewModel.hasPermissions) {
-                    // Pasamos la lista de archivos a eliminar al MainScreen
                     val fileToDelete = if (filesToDelete.isNotEmpty()) filesToDelete.first() else null
 
                     MainScreen(
@@ -78,10 +78,11 @@ class MainActivity : ComponentActivity() {
                         unencryptedFiles = unencryptedFiles,
                         vaultFiles = vaultFiles,
                         creatingTempFile = creatingTempFile,
-                        fileToDeleteAfterEncryption = fileToDelete, // Adaptado para la UI, que aún espera un solo archivo
+                        fileToDeleteAfterEncryption = fileToDelete,
                         inUseFiles = inUseFiles,
                         recentlyEncryptedFiles = recentlyEncryptedFiles,
-                        onEncryptFiles = viewModel::encryptFiles, // Conectado al nuevo método
+                        uploadedFiles = uploadedFiles, // Pass the new state to the UI
+                        onEncryptFiles = viewModel::encryptFiles,
                         onDecryptAndOpenFile = viewModel::decryptAndOpenFile,
                         onDeleteTempFile = viewModel::deleteTempFile,
                         onFolderClick = viewModel::onFolderClick,
@@ -92,7 +93,7 @@ class MainActivity : ComponentActivity() {
                         vaultRootPath = viewModel.vaultRootPath,
                         onPathClick = viewModel::onPathClick,
                         onVaultPathClick = viewModel::onVaultPathClick,
-                        onDeleteOriginalFile = { // Modificado para llamar a la nueva función de borrado múltiple
+                        onDeleteOriginalFile = { 
                             if (filesToDelete.isNotEmpty()) {
                                 viewModel.deleteOriginalFiles(filesToDelete)
                             }
@@ -146,7 +147,7 @@ class MainActivity : ComponentActivity() {
                 manageStorageLauncher.launch(intent)
             }
         } else {
-            // Implementar la solicitud para versiones anteriores si es necesario
+            // Implement request for older versions if needed
         }
     }
 }

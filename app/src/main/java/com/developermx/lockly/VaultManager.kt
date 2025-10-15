@@ -3,40 +3,48 @@ package com.developermx.lockly
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
+import android.provider.OpenableColumns
 import android.util.Log
 import androidx.core.content.FileProvider
+import androidx.core.content.edit
 import androidx.core.net.toUri
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.google.crypto.tink.Aead
-import com.google.crypto.tink.aead.AeadConfig
 import com.lockly.vault.KeystoreHelper
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream
-import java.security.GeneralSecurityException
 import java.security.MessageDigest
-import java.security.SecureRandom
-import java.security.spec.KeySpec
-import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.PBEKeySpec
+import java.util.UUID
 
 object VaultManager {
 
     private const val VAULT_DIR = "vault"
     private const val PASSWORD_FILE = "_vlt_pwd.bin"
-    private const val SALT_FILE = "_vlt_slt.bin"
-    private const val USER_ID_FILE = "_vlt_uid.bin"
     private const val TAG = "VaultManager"
+    private const val PREFS_FILE = "secure_vault_prefs"
+    private const val KEY_USER_ID = "user_id"
+    private const val KEY_PASSWORD_HASH = "password_hash"
 
-    init {
-        try {
-            AeadConfig.register()
-        } catch (_: GeneralSecurityException) {
-            // Ignorar si ya está registrado
-        }
+    private fun getEncryptedPrefs(context: Context): EncryptedSharedPreferences {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+
+        return EncryptedSharedPreferences.create(
+            context,
+            PREFS_FILE,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        ) as EncryptedSharedPreferences
     }
 
-    // --- Métodos de Contraseña y UserID ---
+    fun getUserId(context: Context): String? {
+        return getEncryptedPrefs(context).getString(KEY_USER_ID, null)
+    }
 
     private fun hashPassword(password: String, salt: ByteArray): String {
         val md = MessageDigest.getInstance("SHA-256")
@@ -45,44 +53,83 @@ object VaultManager {
         return hashed.joinToString("") { "%02x".format(it) }
     }
 
-    private fun generateUserId(password: String, salt: ByteArray): String {
-        val spec: KeySpec = PBEKeySpec(password.toCharArray(), salt, 65536, 256) // 256 bits for SHA-256
-        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-        val key = factory.generateSecret(spec)
-        // Convert to hex and take a substring to get 40-64 chars
-        return key.encoded.joinToString("") { "%02x".format(it) }.substring(0, 50)
-    }
-
     fun hasPassword(context: Context): Boolean {
-        val file = File(context.filesDir, PASSWORD_FILE)
-        val saltFile = File(context.filesDir, SALT_FILE)
-        return file.exists() && saltFile.exists()
+        return getEncryptedPrefs(context).contains(KEY_PASSWORD_HASH)
     }
 
     fun savePasswordAndUserId(context: Context, password: String) {
-        val salt = ByteArray(16)
-        SecureRandom().nextBytes(salt)
-        File(context.filesDir, SALT_FILE).writeBytes(salt)
-        val hash = hashPassword(password, salt)
-        File(context.filesDir, PASSWORD_FILE).writeText(hash)
+        val userId = UserIdGenerator.generate(context, password)
+        val passwordHash = hashPassword(password, userId.toByteArray()) // Use userId as salt for the hash
 
-        val userId = generateUserId(password, salt)
-        File(context.filesDir, USER_ID_FILE).writeText(userId)
+        getEncryptedPrefs(context).edit {
+            putString(KEY_USER_ID, userId)
+            putString(KEY_PASSWORD_HASH, passwordHash)
+        }
     }
 
     fun validatePassword(context: Context, password: String): Boolean {
-        val file = File(context.filesDir, PASSWORD_FILE)
-        val saltFile = File(context.filesDir, SALT_FILE)
-        if (!file.exists() || !saltFile.exists()) return false
-        val salt = saltFile.readBytes()
-        val hash = hashPassword(password, salt)
-        return file.readText() == hash
+        val prefs = getEncryptedPrefs(context)
+        val userId = prefs.getString(KEY_USER_ID, null) ?: return false
+        val storedHash = prefs.getString(KEY_PASSWORD_HASH, null) ?: return false
+
+        val passwordHash = hashPassword(password, userId.toByteArray())
+        return storedHash == passwordHash
+    }
+
+    fun ensureUserIdExists(context: Context, password: String) {
+        val prefs = getEncryptedPrefs(context)
+        if (prefs.contains(KEY_USER_ID)) {
+            return // All good
+        }
+
+        Log.w(TAG, "User ID is missing from EncryptedSharedPreferences. Attempting to repair.")
+        try {
+            val userId = UserIdGenerator.generate(context, password)
+            prefs.edit {
+                putString(KEY_USER_ID, userId)
+            }
+            Log.i(TAG, "User ID successfully repaired and saved to prefs.")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to repair User ID.", e)
+        }
     }
 
     // --- Métodos de Cifrado de Archivos ---
 
     private fun getAead(context: Context): Aead {
         return KeystoreHelper.getOrCreateMasterKey(context).getPrimitive(Aead::class.java)
+    }
+
+    private fun getFileNameFromUri(context: Context, uri: Uri): String {
+        var fileName: String? = null
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val displayNameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (displayNameIndex != -1) {
+                    fileName = cursor.getString(displayNameIndex)
+                }
+            }
+        }
+        return fileName ?: "${UUID.randomUUID()}"
+    }
+
+    fun encryptFileToTemp(context: Context, fileUri: Uri): File? {
+        return try {
+            val originalFileName = getFileNameFromUri(context, fileUri)
+            val tempEncryptedFile = File(context.cacheDir, "$originalFileName.enc")
+
+            context.contentResolver.openInputStream(fileUri)?.use { inputStream ->
+                val plainText = inputStream.readBytes()
+                val aead = getAead(context)
+                val cipherText = aead.encrypt(plainText, ByteArray(0))
+                tempEncryptedFile.writeBytes(cipherText)
+            } ?: return null // Devuelve null si no se puede abrir el stream
+
+            tempEncryptedFile
+        } catch (e: Exception) {
+            Log.e(TAG, "Error al cifrar el archivo en un directorio temporal", e)
+            null
+        }
     }
 
     fun getOriginalFileName(encryptedFile: File): String {

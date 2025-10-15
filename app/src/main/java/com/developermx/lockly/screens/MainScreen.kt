@@ -81,7 +81,7 @@ fun FileExplorerScreen(
     isVault: Boolean,
     inUseFiles: Set<String>,
     recentlyEncryptedFiles: Set<String>,
-    // Nuevos parámetros para el modo de selección
+    uploadedFiles: Set<String>,
     selectionMode: Boolean,
     selectedFiles: Set<File>,
     onToggleFileSelection: (File) -> Unit,
@@ -119,7 +119,7 @@ fun FileExplorerScreen(
         } else if (displayAsGrid) {
             ImageGrid(files, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick)
         } else {
-            FileList(files, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, recentlyEncryptedFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick)
+            FileList(files, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, recentlyEncryptedFiles, uploadedFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick)
         }
     }
 }
@@ -133,6 +133,7 @@ fun FileList(
     isVault: Boolean,
     inUseFiles: Set<String>,
     recentlyEncryptedFiles: Set<String>,
+    uploadedFiles: Set<String>,
     selectionMode: Boolean,
     selectedFiles: Set<File>,
     onToggleFileSelection: (File) -> Unit,
@@ -140,7 +141,7 @@ fun FileList(
 ) {
     LazyColumn {
         items(files) { file ->
-            FileListItem(file, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, recentlyEncryptedFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick)
+            FileListItem(file, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, recentlyEncryptedFiles, uploadedFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick)
         }
     }
 }
@@ -179,6 +180,7 @@ fun FileListItem(
     isVault: Boolean,
     inUseFiles: Set<String>,
     recentlyEncryptedFiles: Set<String>,
+    uploadedFiles: Set<String>,
     selectionMode: Boolean,
     selectedFiles: Set<File>,
     onToggleFileSelection: (File) -> Unit,
@@ -190,6 +192,7 @@ fun FileListItem(
     val contentColor = if (isDimmed) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.onSurface
     val isFileInUse = inUseFiles.contains(displayName)
     val isSelected = selectedFiles.contains(file)
+    val isUploaded = uploadedFiles.contains(file.name)
 
     Row(
         modifier = Modifier
@@ -218,6 +221,11 @@ fun FileListItem(
             if (file.isDirectory) {
                 Text("$itemCount items", style = MaterialTheme.typography.bodyMedium, color = contentColor, fontSize = 14.sp)
             }
+        }
+
+        if (isVault && isUploaded) {
+            Icon(Icons.Default.CloudDone, contentDescription = "Subido a la nube", tint = MaterialTheme.colorScheme.secondary)
+            Spacer(modifier = Modifier.width(16.dp))
         }
 
         if (isVault && recentlyEncryptedFiles.contains(file.absolutePath)) {
@@ -323,7 +331,8 @@ fun MainScreen(
     fileToDeleteAfterEncryption: File?,
     inUseFiles: Set<String>,
     recentlyEncryptedFiles: Set<String>,
-    onEncryptFiles: (List<File>) -> Unit, // Modificado para aceptar una lista
+    uploadedFiles: Set<String>,
+    onEncryptFiles: (List<File>) -> Unit,
     onDecryptAndOpenFile: (File) -> Unit,
     onDeleteTempFile: (File) -> Unit,
     onFolderClick: (File) -> Unit,
@@ -347,7 +356,6 @@ fun MainScreen(
         NavItem("Explorador", Icons.AutoMirrored.Filled.Article)
     )
 
-    // Estado para el modo de selección
     var selectionMode by remember { mutableStateOf(false) }
     var selectedFiles by remember { mutableStateOf(emptySet<File>()) }
 
@@ -356,12 +364,11 @@ fun MainScreen(
         selectedFiles = emptySet()
     }
 
-    // El BackHandler ahora también cierra el modo de selección
     BackHandler(enabled = true) {
         if (selectionMode) {
             clearSelection()
         } else if (!onNavigateBack(selectedTab == 0)) {
-            // Lógica para salir de la app
+            // App exit logic
         }
     }
 
@@ -403,7 +410,7 @@ fun MainScreen(
                 }
             },
             bottomBar = {
-                if (!selectionMode) { // Oculta la barra de navegación en modo selección
+                if (!selectionMode) { 
                     NavigationBar {
                         navItems.forEachIndexed { index, item ->
                             NavigationBarItem(
@@ -447,7 +454,8 @@ fun MainScreen(
                         isVault = true,
                         inUseFiles = inUseFiles,
                         recentlyEncryptedFiles = recentlyEncryptedFiles,
-                        selectionMode = false, // Deshabilitado para la bóveda por ahora
+                        uploadedFiles = uploadedFiles,
+                        selectionMode = false, 
                         selectedFiles = emptySet(),
                         onToggleFileSelection = {},
                         onFileLongClick = {}
@@ -465,6 +473,7 @@ fun MainScreen(
                         isVault = false,
                         inUseFiles = emptySet(),
                         recentlyEncryptedFiles = emptySet(),
+                        uploadedFiles = emptySet(),
                         selectionMode = selectionMode,
                         selectedFiles = selectedFiles,
                         onToggleFileSelection = { file ->
@@ -489,8 +498,6 @@ fun MainScreen(
         }
     }
 
-    // --- Diálogos (sin cambios por ahora, pero se podrían deshabilitar en modo selección) ---
-
     if (!selectionMode) {
         showEncryptDialog?.let { file ->
             AlertDialog(
@@ -499,7 +506,7 @@ fun MainScreen(
                 text = { Text("¿Deseas cifrar y mover este archivo a la bóveda?", fontSize = 16.sp) },
                 confirmButton = {
                     TextButton(onClick = {
-                        onEncryptFiles(listOf(file)) // Reutilizamos el nuevo onEncryptFiles
+                        onEncryptFiles(listOf(file)) 
                         showEncryptDialog = null
                     }) { Text("Cifrar") }
                 },
