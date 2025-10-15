@@ -2,6 +2,11 @@ package com.developermx.lockly.screens
 
 import android.os.Environment
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -189,10 +194,13 @@ fun FileListItem(
     val displayName = if (isVault) file.name.removeSuffix(".enc") else file.name
     val itemCount = if (file.isDirectory) getVisibleFileCount(file) else 0
     val isDimmed = file.isDirectory && itemCount == 0
-    val contentColor = if (isDimmed) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.onSurface
     val isFileInUse = inUseFiles.contains(displayName)
     val isSelected = selectedFiles.contains(file)
     val isUploaded = uploadedFiles.contains(file.name)
+
+    val inUseColor = Color(0xFFFFA000)
+    val baseContentColor = if (isDimmed) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.onSurface
+    val contentColor = if (isVault && isFileInUse) inUseColor else baseContentColor
 
     Row(
         modifier = Modifier
@@ -242,8 +250,12 @@ fun FileListItem(
             Spacer(modifier = Modifier.width(16.dp))
         }
 
-        if (isVault && isFileInUse) {
-            Icon(Icons.Default.LockOpen, contentDescription = "En uso", tint = Color(0xFFFFA000))
+        AnimatedVisibility(
+            visible = isVault && isFileInUse,
+            enter = fadeIn() + slideInHorizontally(initialOffsetX = { it / 2 }),
+            exit = fadeOut() + slideOutHorizontally(targetOffsetX = { it / 2 })
+        ) {
+            Icon(Icons.Default.LockOpen, contentDescription = "En uso", tint = inUseColor)
         }
     }
 }
