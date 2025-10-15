@@ -1,10 +1,10 @@
+
 package com.developermx.lockly.workers
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.ServiceInfo
-import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -19,6 +19,7 @@ import com.developermx.lockly.data.network.FileUploader
 import com.developermx.lockly.data.network.UploadUrlRequest
 import java.io.File
 import java.io.IOException
+import java.util.UUID
 
 class FileUploadWorker(
     private val appContext: Context,
@@ -37,66 +38,62 @@ class FileUploadWorker(
         } else {
             ForegroundInfo(notificationId, notification)
         }
+
         setForeground(foregroundInfo)
 
-        var tempEncryptedFile: File? = null
+        val encryptedFilePath = inputData.getString(EncryptWorker.KEY_ENCRYPTED_FILE_PATH)
+            ?: run {
+                showFinalNotification("Error de subida", "Ruta de archivo cifrado no encontrada.", notificationId, isError = true)
+                return Result.failure()
+            }
+        
+        val encryptedFile = File(encryptedFilePath)
+
         return try {
-            val fileUriString = inputData.getString(KEY_FILE_URI)
-                ?: throw IllegalArgumentException("File URI not provided")
+            if (!encryptedFile.exists()) {
+                throw IOException("El archivo cifrado no se encontró en la ruta: $encryptedFilePath")
+            }
 
             val userId = VaultManager.getUserId(appContext)
-                ?: throw IllegalStateException("User ID not found, aborting upload.")
+                ?: throw IllegalStateException("User ID no encontrado, abortando subida.")
 
-            Log.d(TAG, "Starting upload for URI: $fileUriString")
-            val fileUri = Uri.parse(fileUriString)
+            // Generate a UUID for the remote file name
+            val remoteFileName = "${UUID.randomUUID()}.enc"
+            Log.d(TAG, "Starting upload for ${encryptedFile.name} as $remoteFileName")
 
-            updateNotification("Cifrando archivo...", notificationId)
-            Log.d(TAG, "Encrypting file...")
-            tempEncryptedFile = VaultManager.encryptFileToTemp(appContext, fileUri)
-                ?: throw IOException("Failed to encrypt file")
-            Log.d(TAG, "File encrypted successfully: ${tempEncryptedFile.path}")
-
-            updateNotification("Solicitando URL de subida...", notificationId)
-            Log.d(TAG, "Requesting upload URL...")
+            updateNotification("Solicitando URL de subida para '${encryptedFile.name}'", notificationId)
             val request = UploadUrlRequest(
                 userId = userId,
-                fileName = tempEncryptedFile.name
+                fileName = remoteFileName // Use UUID-based name for the cloud
             )
             val response = ApiClient.apiService.getUploadUrl(request)
 
             if (!response.success || response.data == null) {
-                throw IOException("Failed to get upload URL: ${response.error}")
+                throw IOException("No se pudo obtener la URL de subida: ${response.error}")
             }
 
             val uploadUrl = response.data.url
-            Log.d(TAG, "Got upload URL. Starting upload...")
+            Log.d(TAG, "URL de subida obtenida. Subiendo '${encryptedFile.name}'...")
 
-            updateNotification("Subiendo archivo...", notificationId)
-            FileUploader.uploadFile(uploadUrl, tempEncryptedFile)
+            updateNotification("Subiendo '${encryptedFile.name}'...", notificationId)
+            FileUploader.uploadFile(uploadUrl, encryptedFile)
 
-            Log.d(TAG, "Upload finished successfully for URI: $fileUriString")
-            showFinalNotification("Subida completada", "El archivo se ha subido con éxito.", notificationId)
+            Log.d(TAG, "Subida finalizada para: ${encryptedFile.name} (remoto: $remoteFileName)")
+            showFinalNotification("Subida completada", "'${encryptedFile.name}' se ha subido con éxito.", notificationId)
 
-            // Return the name of the uploaded file on success
-            val outputData = workDataOf(KEY_OUTPUT_ENCRYPTED_FILE_NAME to tempEncryptedFile.name)
+            // Return the original encrypted file name for UI updates
+            val outputData = workDataOf(KEY_OUTPUT_ENCRYPTED_FILE_NAME to encryptedFile.name)
             Result.success(outputData)
 
         } catch (e: Exception) {
-            Log.e(TAG, "Upload failed for URI: ${inputData.getString(KEY_FILE_URI)}", e)
-            showFinalNotification("Error en la subida", "No se pudo completar la subida del archivo.", notificationId)
+            Log.e(TAG, "Fallo la subida para ${encryptedFile.name}", e)
+            showFinalNotification("Error en la subida", "No se pudo subir '${encryptedFile.name}'.", notificationId, isError = true)
             Result.failure()
-        } finally {
-            tempEncryptedFile?.let {
-                if (it.exists()) {
-                    Log.d(TAG, "Deleting temporary file: ${it.path}")
-                    it.delete()
-                }
-            }
         }
     }
 
     private fun createNotification(contentText: String) = NotificationCompat.Builder(appContext, CHANNEL_ID)
-        .setContentTitle("Proceso de Lockly")
+        .setContentTitle("Proceso de Subida")
         .setContentText(contentText)
         .setSmallIcon(R.drawable.ic_launcher_foreground)
         .setOngoing(true)
@@ -108,11 +105,11 @@ class FileUploadWorker(
         notificationManager.notify(notificationId, notification)
     }
 
-    private fun showFinalNotification(title: String, contentText: String, notificationId: Int) {
+    private fun showFinalNotification(title: String, contentText: String, notificationId: Int, isError: Boolean = false) {
         val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(contentText)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(if (isError) android.R.drawable.stat_sys_warning else R.drawable.ic_launcher_foreground)
             .build()
         notificationManager.notify(notificationId, notification)
     }
@@ -137,7 +134,6 @@ class FileUploadWorker(
     companion object {
         private const val TAG = "FileUploadWorker"
         private const val CHANNEL_ID = "FileUploadChannel"
-        const val KEY_FILE_URI = "key_file_uri"
         const val KEY_OUTPUT_ENCRYPTED_FILE_NAME = "key_output_encrypted_file_name"
     }
 }

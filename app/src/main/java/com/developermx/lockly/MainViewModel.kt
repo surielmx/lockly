@@ -1,3 +1,4 @@
+
 package com.developermx.lockly
 
 import android.app.Application
@@ -14,20 +15,20 @@ import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.core.net.toUri
 import androidx.lifecycle.Observer
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.developermx.lockly.workers.EncryptWorker
 import com.developermx.lockly.workers.FileUploadWorker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import android.os.Environment
-import androidx.core.content.FileProvider
-import java.io.FileOutputStream
 import kotlinx.coroutines.CoroutineExceptionHandler
+import java.io.FileOutputStream
+import java.util.UUID
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val vaultRoot = File(application.filesDir, "vault").apply { mkdirs() }
@@ -52,7 +53,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val recentlyEncryptedFiles = _recentlyEncryptedFiles.asStateFlow()
     private val _inUseFiles = MutableStateFlow<Set<String>>(emptySet())
     val inUseFiles = _inUseFiles.asStateFlow()
-    private val _uploadedFiles = MutableStateFlow<Set<String>>(emptySet()) // New state for uploaded files
+    private val _uploadedFiles = MutableStateFlow<Set<String>>(emptySet())
     val uploadedFiles = _uploadedFiles.asStateFlow()
     var hasPermissions by mutableStateOf(false)
 
@@ -69,7 +70,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val TAG = "MainViewModel"
     private val coroutineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
         Log.e(TAG, "Uncaught exception in coroutine", throwable)
-        showSnackbarMessage("An unexpected error occurred.")
+        showSnackbarMessage("Ocurrió un error inesperado.")
     }
 
     init {
@@ -112,7 +113,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadVaultFiles() {
         viewModelScope.launch {
-            _vaultFiles.value = _currentVaultPath.value.listFiles()?.filter(::filterFile)?.sorted()?.toList() ?: emptyList()
+            _vaultFiles.value = _currentVaultPath.value.listFiles()?.sorted()?.toList() ?: emptyList()
         }
     }
 
@@ -167,66 +168,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- Encryption & Decryption Logic ---
+    // --- Encryption & Upload Chain ---
 
-    fun encryptFiles(originalFiles: List<File>) {
-        viewModelScope.launch(coroutineExceptionHandler) {
-            val successfullyEncryptedOriginals = mutableListOf<File>()
+    fun encryptAndUploadFiles(originalFiles: List<File>) {
+        if (originalFiles.isEmpty()) return
 
-            for (originalFile in originalFiles) {
-                try {
-                    val context = getApplication<Application>()
-                    val encryptedFile = VaultManager.importAndEncryptFile(context, originalFile)
-                    if (encryptedFile != null) {
-                        successfullyEncryptedOriginals.add(originalFile)
-                        _recentlyEncryptedFiles.update { it + encryptedFile.absolutePath }
-                        startFileUploadWorker(originalFile)
-                        showSnackbarMessage("Iniciando subida de '${originalFile.name}' a la nube.")
-                    } else {
-                        showSnackbarMessage("Error al cifrar '${originalFile.name}'")
-                    }
-                } catch (e: Exception) {
-                    showSnackbarMessage("Error al procesar '${originalFile.name}'")
-                    Log.e(TAG, "Error durante el cifrado de ${originalFile.name}", e)
-                }
-            }
+        val workManager = WorkManager.getInstance(getApplication())
 
-            loadVaultFiles()
+        for (originalFile in originalFiles) {
+            val encryptRequest = OneTimeWorkRequestBuilder<EncryptWorker>()
+                .setInputData(workDataOf(EncryptWorker.KEY_FILE_PATH to originalFile.absolutePath))
+                .build()
 
-            if (successfullyEncryptedOriginals.isNotEmpty()) {
-                _showDeleteConfirmationDialog.value = successfullyEncryptedOriginals
-            }
+            val uploadRequest = OneTimeWorkRequestBuilder<FileUploadWorker>().build()
+
+            workManager
+                .beginWith(encryptRequest)
+                .then(uploadRequest)
+                .enqueue()
+
+            Log.d(TAG, "Work chain enqueued for ${originalFile.name}. Final work ID: ${uploadRequest.id}")
+            observeWorkChain(uploadRequest.id, originalFile)
         }
+        showSnackbarMessage("Iniciando cifrado y subida para ${originalFiles.size} archivos...")
     }
 
-    private fun startFileUploadWorker(originalFile: File) {
-        val context = getApplication<Application>()
-        val workManager = WorkManager.getInstance(context)
-
-        val inputData = workDataOf(FileUploadWorker.KEY_FILE_URI to originalFile.toUri().toString())
-
-        val uploadWorkRequest = OneTimeWorkRequestBuilder<FileUploadWorker>()
-            .setInputData(inputData)
-            .build()
-
-        workManager.enqueue(uploadWorkRequest)
-        Log.d(TAG, "FileUploadWorker enqueued for: ${originalFile.name} with ID: ${uploadWorkRequest.id}")
-
-        // Observe the result of the worker
-        workManager.getWorkInfoByIdLiveData(uploadWorkRequest.id).observeForever(object : Observer<WorkInfo?> {
+    private fun observeWorkChain(workId: UUID, originalFile: File) {
+        val workManager = WorkManager.getInstance(getApplication())
+        workManager.getWorkInfoByIdLiveData(workId).observeForever(object : Observer<WorkInfo?> {
             override fun onChanged(value: WorkInfo?) {
-                if (value?.state == WorkInfo.State.SUCCEEDED) {
-                    val encryptedFileName = value.outputData.getString(FileUploadWorker.KEY_OUTPUT_ENCRYPTED_FILE_NAME)
-                    if (!encryptedFileName.isNullOrEmpty()) {
-                        _uploadedFiles.update { it + encryptedFileName }
-                        Log.i(TAG, "Successfully uploaded: $encryptedFileName. Marked as uploaded.")
-                        showSnackbarMessage("'$encryptedFileName' se ha subido a la nube.")
-                        // Stop observing to avoid multiple triggers
-                        workManager.getWorkInfoByIdLiveData(uploadWorkRequest.id).removeObserver(this)
+                if (value == null) return
+
+                when (value.state) {
+                    WorkInfo.State.SUCCEEDED -> {
+                        val encryptedFileName = value.outputData.getString(FileUploadWorker.KEY_OUTPUT_ENCRYPTED_FILE_NAME)
+                        if (!encryptedFileName.isNullOrEmpty()) {
+                            _uploadedFiles.update { it + encryptedFileName }
+                            Log.i(TAG, "Chain succeeded for ${originalFile.name}. Encrypted file: $encryptedFileName")
+                        }
+                        loadVaultFiles()
+                        // Add the original file to the list for the deletion confirmation dialog
+                        _showDeleteConfirmationDialog.update { it + originalFile }
+                        workManager.getWorkInfoByIdLiveData(workId).removeObserver(this)
                     }
-                } else if (value?.state == WorkInfo.State.FAILED) {
-                    Log.e(TAG, "Upload worker failed for ${originalFile.name}")
-                    workManager.getWorkInfoByIdLiveData(uploadWorkRequest.id).removeObserver(this)
+                    WorkInfo.State.FAILED -> {
+                        Log.e(TAG, "Work chain failed for ${originalFile.name}")
+                        showSnackbarMessage("Falló el proceso para ${originalFile.name}")
+                        workManager.getWorkInfoByIdLiveData(workId).removeObserver(this)
+                    }
+                    WorkInfo.State.CANCELLED -> {
+                        Log.w(TAG, "Work chain was cancelled for ${originalFile.name}")
+                        workManager.getWorkInfoByIdLiveData(workId).removeObserver(this)
+                    }
+                    else -> { /* ENQUEUED, RUNNING, BLOCKED */ }
                 }
             }
         })
@@ -304,7 +298,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-
 
     fun deleteTempFile(file: File) {
         viewModelScope.launch {

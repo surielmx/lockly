@@ -82,7 +82,7 @@ class MainActivity : ComponentActivity() {
                         inUseFiles = inUseFiles,
                         recentlyEncryptedFiles = recentlyEncryptedFiles,
                         uploadedFiles = uploadedFiles, // Pass the new state to the UI
-                        onEncryptFiles = viewModel::encryptFiles,
+                        onEncryptFiles = viewModel::encryptAndUploadFiles,
                         onDecryptAndOpenFile = viewModel::decryptAndOpenFile,
                         onDeleteTempFile = viewModel::deleteTempFile,
                         onFolderClick = viewModel::onFolderClick,
