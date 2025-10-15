@@ -324,6 +324,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun dismissDeleteConfirmationDialog() {
+        if (_showDeleteConfirmationDialog.value.isNotEmpty()) {
+            showSnackbarMessage("Los archivos originales no se eliminaron y permanecen en el dispositivo.")
+        }
         _showDeleteConfirmationDialog.value = emptyList()
     }
 }
