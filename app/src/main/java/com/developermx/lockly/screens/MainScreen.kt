@@ -379,6 +379,7 @@ fun MainScreen(
     var showOpenDialog by remember { mutableStateOf<File?>(null) }
     var showDeleteTempFileDialog by remember { mutableStateOf<File?>(null) }
     var showEncryptDialog by remember { mutableStateOf<File?>(null) }
+    var showEncryptMultipleDialog by remember { mutableStateOf(false) }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -430,8 +431,7 @@ fun MainScreen(
             floatingActionButton = {
                 if (selectionMode && selectedFiles.isNotEmpty()) {
                     FloatingActionButton(onClick = {
-                        onEncryptFiles(selectedFiles.toList())
-                        clearSelection()
+                        showEncryptMultipleDialog = true
                     }) {
                         Icon(Icons.Default.Lock, contentDescription = "Cifrar archivos seleccionados")
                     }
@@ -500,6 +500,24 @@ fun MainScreen(
                 }
             }
         }
+    }
+
+    if (showEncryptMultipleDialog) {
+        AlertDialog(
+            onDismissRequest = { showEncryptMultipleDialog = false },
+            title = { Text("Cifrar archivos", fontSize = 20.sp) },
+            text = { Text("¿Deseas cifrar y mover ${selectedFiles.size} archivos a la bóveda?", fontSize = 16.sp) },
+            confirmButton = {
+                TextButton(onClick = {
+                    onEncryptFiles(selectedFiles.toList())
+                    showEncryptMultipleDialog = false
+                    clearSelection()
+                }) { Text("Cifrar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEncryptMultipleDialog = false }) { Text("Cancelar") }
+            }
+        )
     }
 
     if (!selectionMode) {

@@ -214,9 +214,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Observe the result of the worker
         workManager.getWorkInfoByIdLiveData(uploadWorkRequest.id).observeForever(object : Observer<WorkInfo?> {
-            override fun onChanged(workInfo: WorkInfo?) {
-                if (workInfo?.state == WorkInfo.State.SUCCEEDED) {
-                    val encryptedFileName = workInfo.outputData.getString(FileUploadWorker.KEY_OUTPUT_ENCRYPTED_FILE_NAME)
+            override fun onChanged(value: WorkInfo?) {
+                if (value?.state == WorkInfo.State.SUCCEEDED) {
+                    val encryptedFileName = value.outputData.getString(FileUploadWorker.KEY_OUTPUT_ENCRYPTED_FILE_NAME)
                     if (!encryptedFileName.isNullOrEmpty()) {
                         _uploadedFiles.update { it + encryptedFileName }
                         Log.i(TAG, "Successfully uploaded: $encryptedFileName. Marked as uploaded.")
@@ -224,7 +224,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         // Stop observing to avoid multiple triggers
                         workManager.getWorkInfoByIdLiveData(uploadWorkRequest.id).removeObserver(this)
                     }
-                } else if (workInfo?.state == WorkInfo.State.FAILED) {
+                } else if (value?.state == WorkInfo.State.FAILED) {
                     Log.e(TAG, "Upload worker failed for ${originalFile.name}")
                     workManager.getWorkInfoByIdLiveData(uploadWorkRequest.id).removeObserver(this)
                 }
