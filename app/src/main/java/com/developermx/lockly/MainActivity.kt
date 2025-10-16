@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
                 val unencryptedFiles by viewModel.unencryptedFiles.collectAsState()
                 val vaultFiles by viewModel.vaultFiles.collectAsState()
                 val creatingTempFile by viewModel.creatingTempFile.collectAsState()
+                val encryptingFiles by viewModel.encryptingFiles.collectAsState()
                 val currentPath by viewModel.currentPath.collectAsState()
                 val currentVaultPath by viewModel.currentVaultPath.collectAsState()
                 val snackbarHostState = remember { SnackbarHostState() }
@@ -136,7 +137,8 @@ class MainActivity : ComponentActivity() {
                         onDismissDecryptMultipleDialog = viewModel::dismissDecryptMultipleDialog,
                         onShowDeleteMultipleTempDialog = { files -> viewModel.showDeleteMultipleTempDialog(files) },
                         onDeleteMultipleTempFiles = { viewModel.confirmDeleteMultipleTempFiles() },
-                        onDismissDeleteMultipleTempDialog = viewModel::dismissDeleteMultipleTempDialog
+                        onDismissDeleteMultipleTempDialog = viewModel::dismissDeleteMultipleTempDialog,
+                        encryptingFiles = encryptingFiles
                     )
                 } else {
                     PermissionRequestScreen {

@@ -42,6 +42,10 @@ class EncryptWorker(
                 return Result.failure()
             }
 
+        // Obtener índice actual y total de archivos
+        val currentIndex = inputData.getInt(KEY_CURRENT_INDEX, 1)
+        val totalFiles = inputData.getInt(KEY_TOTAL_FILES, 1)
+
         return try {
             val originalFile = File(filePath)
 
@@ -53,7 +57,7 @@ class EncryptWorker(
                 return Result.failure()
             }
 
-            updateNotification("Cifrando '${originalFile.name}'", notificationId)
+            updateNotification("Cifrando $currentIndex de $totalFiles: '${originalFile.name}'", notificationId)
 
             val encryptedFile = VaultManager.importAndEncryptFile(appContext, originalFile, password)
                 ?: throw Exception("Error al cifrar el archivo '${originalFile.name}'" + originalFile.name)
@@ -114,5 +118,7 @@ class EncryptWorker(
         private const val CHANNEL_ID = "EncryptChannel"
         const val KEY_FILE_PATH = "key_file_path"
         const val KEY_ENCRYPTED_FILE_PATH = "key_encrypted_file_path"
+        const val KEY_CURRENT_INDEX = "key_current_index"
+        const val KEY_TOTAL_FILES = "key_total_files"
     }
 }

@@ -56,6 +56,10 @@ class FileUploadWorker(
                 return Result.failure()
             }
 
+        // Obtener índice actual y total de archivos
+        val currentIndex = inputData.getInt(KEY_CURRENT_INDEX, 1)
+        val totalFiles = inputData.getInt(KEY_TOTAL_FILES, 1)
+
         val encryptedFile = File(encryptedFilePath)
 
         return try {
@@ -67,14 +71,14 @@ class FileUploadWorker(
                 ?: throw IllegalStateException("User ID no encontrado, abortando subida.")
 
             val remoteFileName = encryptedFile.name
-            Log.d(TAG, "Starting upload for ${encryptedFile.name} as $remoteFileName")
+            Log.d(TAG, "Starting upload for ${encryptedFile.name} as $remoteFileName ($currentIndex/$totalFiles)")
 
-            updateNotification("Solicitando URL de subida para '${encryptedFile.name}'", notificationId)
+            updateNotification("Solicitando URL de subida para '${encryptedFile.name}' ($currentIndex de $totalFiles)", notificationId)
             val request = FileUrlRequest(
                 userId = userId,
                 fileName = remoteFileName
             )
-            
+
             val response = ApiClient.apiService.getUploadUrl(request)
             if (!response.isSuccessful) {
                 throw IOException("Error de red al obtener URL de subida: ${response.code()}")
@@ -88,11 +92,11 @@ class FileUploadWorker(
             val uploadUrl = apiResponse.data.url
             Log.d(TAG, "URL de subida obtenida. Subiendo '${encryptedFile.name}'...")
 
-            updateNotification("Subiendo '${encryptedFile.name}'...", notificationId)
+            updateNotification("Subiendo $currentIndex de $totalFiles: '${encryptedFile.name}'", notificationId)
             FileUploader.uploadFile(uploadUrl, encryptedFile)
 
             Log.d(TAG, "Subida finalizada para: ${encryptedFile.name} (remoto: $remoteFileName)")
-            
+
             notificationManager.cancel(notificationId)
 
             val outputData = workDataOf(KEY_OUTPUT_ENCRYPTED_FILE_NAME to encryptedFile.name)
@@ -192,5 +196,7 @@ class FileUploadWorker(
         private const val PROGRESS_CHANNEL_ID = "FileUploadProgressChannel"
         private const val ERROR_CHANNEL_ID = "FileUploadErrorChannel"
         const val KEY_OUTPUT_ENCRYPTED_FILE_NAME = "key_output_encrypted_file_name"
+        const val KEY_CURRENT_INDEX = "key_current_index"
+        const val KEY_TOTAL_FILES = "key_total_files"
     }
 }

@@ -124,7 +124,8 @@ fun MainScreen(
     showDeleteMultipleTempDialog: List<File> = emptyList(),
     onShowDeleteMultipleTempDialog: (List<File>) -> Unit = {},
     onDeleteMultipleTempFiles: () -> Unit = {},
-    onDismissDeleteMultipleTempDialog: () -> Unit = {}
+    onDismissDeleteMultipleTempDialog: () -> Unit = {},
+    encryptingFiles: Set<String> = emptySet()
 ) {
     var selectedTab by remember { mutableStateOf(0) }
     var selectionMode by remember { mutableStateOf(false) }
@@ -394,7 +395,8 @@ fun MainScreen(
                             selectedFiles = setOf(it)
                         }
                     },
-                    creatingTempFile = creatingTempFile
+                    creatingTempFile = creatingTempFile,
+                    encryptingFiles = encryptingFiles
                 )
             }
         }
@@ -585,7 +587,8 @@ fun FileExplorerScreen(
     selectedFiles: Set<File>,
     onToggleFileSelection: (File) -> Unit,
     onFileLongClick: (File) -> Unit,
-    creatingTempFile: Set<String>
+    creatingTempFile: Set<String>,
+    encryptingFiles: Set<String> = emptySet()
 ) {
     val imageCount = files.count { isImageFile(it.name) }
     val displayAsGrid = !isVault && imageCount > files.size / 2 && imageCount > 0
@@ -617,9 +620,9 @@ fun FileExplorerScreen(
                 }
             }
         } else if (displayAsGrid) {
-            ImageGrid(files, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick)
+            ImageGrid(files, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick, encryptingFiles)
         } else {
-            FileList(files, missingCloudFiles, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, recentlyEncryptedFiles, uploadedFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick, creatingTempFile)
+            FileList(files, missingCloudFiles, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, recentlyEncryptedFiles, uploadedFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick, creatingTempFile, encryptingFiles)
         }
     }
 }
@@ -639,11 +642,12 @@ fun FileList(
     selectedFiles: Set<File>,
     onToggleFileSelection: (File) -> Unit,
     onFileLongClick: (File) -> Unit,
-    creatingTempFile: Set<String>
+    creatingTempFile: Set<String>,
+    encryptingFiles: Set<String>
 ) {
     LazyColumn {
         items(files) { file ->
-            FileListItem(file, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, recentlyEncryptedFiles, uploadedFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick, creatingTempFile)
+            FileListItem(file, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, recentlyEncryptedFiles, uploadedFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick, creatingTempFile, encryptingFiles)
         }
         if (isVault) {
             items(missingCloudFiles) { cloudFile ->
@@ -665,14 +669,15 @@ fun ImageGrid(
     selectionMode: Boolean,
     selectedFiles: Set<File>,
     onToggleFileSelection: (File) -> Unit,
-    onFileLongClick: (File) -> Unit
+    onFileLongClick: (File) -> Unit,
+    encryptingFiles: Set<String>
 ) {
     LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 128.dp), contentPadding = PaddingValues(4.dp)) {
         items(files) {
             if (it.isDirectory) {
                 FolderGridItem(it, onFolderClick, getVisibleFileCount)
             } else {
-                ImageGridItem(it, onFileClick, isVault, inUseFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick)
+                ImageGridItem(it, onFileClick, isVault, inUseFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick, encryptingFiles)
             }
         }
     }
@@ -719,7 +724,8 @@ fun FileListItem(
     selectedFiles: Set<File>,
     onToggleFileSelection: (File) -> Unit,
     onFileLongClick: (File) -> Unit,
-    creatingTempFile: Set<String>
+    creatingTempFile: Set<String>,
+    encryptingFiles: Set<String>
 ) {
     val displayName = if (isVault) file.name.removeSuffix(".enc") else file.name
     val itemCount = if (file.isDirectory) getVisibleFileCount(file) else 0
@@ -728,28 +734,35 @@ fun FileListItem(
     val isSelected = selectedFiles.contains(file)
     val isUploaded = uploadedFiles.contains(file.name)
     val isDecrypting = creatingTempFile.contains(file.absolutePath)
+    val isEncrypting = encryptingFiles.contains(file.absolutePath)
 
     val inUseColor = Color(0xFFFFA000)
+    val encryptingColor = MaterialTheme.colorScheme.primary
     val baseContentColor = if (isDimmed) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.onSurface
-    val contentColor = if (isVault && isFileInUse) inUseColor else baseContentColor
+    val contentColor = when {
+        isVault && isFileInUse -> inUseColor
+        !isVault && isEncrypting -> baseContentColor.copy(alpha = 0.5f)
+        else -> baseContentColor
+    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
+                enabled = !isEncrypting,
                 onClick = {
                     if (selectionMode) {
-                        if (!file.isDirectory) onToggleFileSelection(file)
+                        if (!file.isDirectory && !isEncrypting) onToggleFileSelection(file)
                     } else {
                         if (file.isDirectory) {
                             if (itemCount > 0) onFolderClick(file)
-                        } else {
+                        } else if (!isEncrypting) {
                             onFileClick(file)
                         }
                     }
                 },
                 onLongClick = {
-                    if (!file.isDirectory) onFileLongClick(file)
+                    if (!file.isDirectory && !isEncrypting) onFileLongClick(file)
                 }
             )
             .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent)
@@ -768,7 +781,23 @@ fun FileListItem(
             }
         }
 
-        // Indicador de descifrado en progreso
+        // Indicador de cifrado en progreso (tab Archivos)
+        AnimatedVisibility(
+            visible = !isVault && isEncrypting,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = encryptingColor
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+            }
+        }
+
+        // Indicador de descifrado en progreso (tab Bóveda)
         AnimatedVisibility(
             visible = isVault && isDecrypting,
             enter = fadeIn(),
@@ -819,20 +848,29 @@ fun ImageGridItem(
     selectionMode: Boolean,
     selectedFiles: Set<File>,
     onToggleFileSelection: (File) -> Unit,
-    onFileLongClick: (File) -> Unit
+    onFileLongClick: (File) -> Unit,
+    encryptingFiles: Set<String>
 ) {
     val displayName = if (isVault) file.name.removeSuffix(".enc") else file.name
     val isFileInUse = inUseFiles.contains(displayName)
     val isSelected = selectedFiles.contains(file)
+    val isEncrypting = encryptingFiles.contains(file.absolutePath)
 
     Card(
         modifier = Modifier
             .padding(4.dp)
             .combinedClickable(
+                enabled = !isEncrypting,
                 onClick = {
-                    if (selectionMode) onToggleFileSelection(file) else onFileClick(file)
+                    if (selectionMode) {
+                        if (!isEncrypting) onToggleFileSelection(file)
+                    } else {
+                        if (!isEncrypting) onFileClick(file)
+                    }
                 },
-                onLongClick = { if (!isVault) onFileLongClick(file) }
+                onLongClick = {
+                    if (!isVault && !isEncrypting) onFileLongClick(file)
+                }
             ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
@@ -849,6 +887,23 @@ fun ImageGridItem(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
+
+            // Overlay y indicador de cifrado en progreso (tab Archivos)
+            if (!isVault && isEncrypting) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.3f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(32.dp),
+                        strokeWidth = 3.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
             if (isVault && isFileInUse) {
                 Icon(
                     imageVector = Icons.Default.LockOpen,

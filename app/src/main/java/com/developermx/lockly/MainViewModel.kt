@@ -85,6 +85,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val inUseFiles = _inUseFiles.asStateFlow()
     private val _uploadedFiles = MutableStateFlow<Set<String>>(emptySet())
     val uploadedFiles = _uploadedFiles.asStateFlow()
+    private val _encryptingFiles = MutableStateFlow<Set<String>>(emptySet())
+    val encryptingFiles = _encryptingFiles.asStateFlow()
     var hasPermissions by mutableStateOf(false)
 
     // --- Dialogs ---
@@ -553,23 +555,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (originalFiles.isEmpty()) return
 
         val workManager = WorkManager.getInstance(getApplication())
+        val totalFiles = originalFiles.size
 
-        for (originalFile in originalFiles) {
+        // Agregar todos los archivos al estado de "cifrando"
+        _encryptingFiles.update { current ->
+            current + originalFiles.map { it.absolutePath }.toSet()
+        }
+
+        originalFiles.forEachIndexed { index, originalFile ->
+            val currentIndex = index + 1
+
             val encryptRequest = OneTimeWorkRequestBuilder<EncryptWorker>()
-                .setInputData(workDataOf(EncryptWorker.KEY_FILE_PATH to originalFile.absolutePath))
+                .setInputData(workDataOf(
+                    EncryptWorker.KEY_FILE_PATH to originalFile.absolutePath,
+                    EncryptWorker.KEY_CURRENT_INDEX to currentIndex,
+                    EncryptWorker.KEY_TOTAL_FILES to totalFiles
+                ))
                 .build()
 
-            val uploadRequest = OneTimeWorkRequestBuilder<FileUploadWorker>().build()
+            val uploadRequest = OneTimeWorkRequestBuilder<FileUploadWorker>()
+                .setInputData(workDataOf(
+                    FileUploadWorker.KEY_CURRENT_INDEX to currentIndex,
+                    FileUploadWorker.KEY_TOTAL_FILES to totalFiles
+                ))
+                .build()
 
             workManager
                 .beginWith(encryptRequest)
                 .then(uploadRequest)
                 .enqueue()
 
-            Log.d(TAG, "Work chain enqueued for ${originalFile.name}. Final work ID: ${uploadRequest.id}")
+            Log.d(TAG, "Work chain enqueued for ${originalFile.name} ($currentIndex/$totalFiles). Final work ID: ${uploadRequest.id}")
             observeWorkChainWithCoroutines(uploadRequest.id, originalFile)
         }
-        showSnackbarMessage("Iniciando cifrado y subida para ${originalFiles.size} archivos...")
+        showSnackbarMessage("Iniciando cifrado y subida para $totalFiles archivos...")
     }
 
     private fun observeWorkChainWithCoroutines(workId: UUID, originalFile: File) {
@@ -593,16 +612,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             loadVaultFiles()
                             // Add the original file to the list for the deletion confirmation dialog
                             _showDeleteConfirmationDialog.update { it + originalFile }
+                            // Remover del estado de "cifrando"
+                            _encryptingFiles.update { it - originalFile.absolutePath }
                             // Terminar la recolección cuando el trabajo finaliza
                             return@collect
                         }
                         WorkInfo.State.FAILED -> {
                             Log.e(TAG, "Work chain failed for ${originalFile.name}")
                             showSnackbarMessage("Falló el proceso para ${originalFile.name}")
+                            // Remover del estado de "cifrando"
+                            _encryptingFiles.update { it - originalFile.absolutePath }
                             return@collect
                         }
                         WorkInfo.State.CANCELLED -> {
                             Log.w(TAG, "Work chain was cancelled for ${originalFile.name}")
+                            // Remover del estado de "cifrando"
+                            _encryptingFiles.update { it - originalFile.absolutePath }
                             return@collect
                         }
                         else -> { /* ENQUEUED, RUNNING, BLOCKED - continuar observando */ }
@@ -611,6 +636,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 Log.e(TAG, "Error observing work chain for ${originalFile.name}", e)
                 showSnackbarMessage("Error al monitorear el proceso para ${originalFile.name}")
+                // Remover del estado de "cifrando" en caso de error
+                _encryptingFiles.update { it - originalFile.absolutePath }
             }
         }
     }
