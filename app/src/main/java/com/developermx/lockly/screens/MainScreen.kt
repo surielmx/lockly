@@ -1,5 +1,6 @@
 package com.developermx.lockly.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -135,6 +136,32 @@ fun MainScreen(
         NavItem("Bóveda", Icons.Default.Cloud),
         NavItem("Archivos", Icons.Default.Home)
     )
+
+    // Determinar si podemos manejar el back (si no estamos en la raíz o hay modo selección)
+    val isAtRoot = if (selectedTab == 0) {
+        currentVaultPath == vaultRootPath
+    } else {
+        currentPath == "/storage/emulated/0"
+    }
+    val hasSelectionMode = (selectedTab == 0 && vaultSelectionMode) || (selectedTab == 1 && selectionMode)
+    val shouldHandleBack = hasSelectionMode || !isAtRoot
+
+    // Manejar el botón back del sistema Android
+    BackHandler(enabled = shouldHandleBack) {
+        // Verificar si estamos en modo selección
+        if (selectedTab == 0 && vaultSelectionMode) {
+            // Salir del modo selección en Bóveda
+            vaultSelectionMode = false
+            vaultSelectedFiles = emptySet()
+        } else if (selectedTab == 1 && selectionMode) {
+            // Salir del modo selección en Explorador
+            selectionMode = false
+            selectedFiles = emptySet()
+        } else {
+            // Navegar hacia atrás en las carpetas
+            onNavigateBack(selectedTab == 0)
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },

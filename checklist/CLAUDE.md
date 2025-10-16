@@ -42,8 +42,7 @@ Por cada criterio de aceptacion:
 
 Por cada HU-XXX:
 - Esperar un analisis detallado como el anterior
-- Al final, un resumen con como el anterior
-- Al final, una tabla resumen con las HU-XXX y su estado (implementado, parcialmente implementado, no implementado)
+- Esperar un analisis detallado de su estado (implementado, parcialmente implementado, no implementado)
 - Espera confirmacion antes de continuar con la siguiente HU-XXX
 - No continuar sin confirmacion
 - Espera confirmacion para implementar cambios
