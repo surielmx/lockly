@@ -521,7 +521,12 @@ fun MainScreen(
                         }
                     },
                     dismissButton = {
-                        TextButton(onClick = { filesToEncrypt = null }) {
+                        TextButton(onClick = {
+                            filesToEncrypt = null
+                            // Salir del modo selección y limpiar archivos seleccionados
+                            selectionMode = false
+                            selectedFiles = emptySet()
+                        }) {
                             Text("Cancelar")
                         }
                     }
