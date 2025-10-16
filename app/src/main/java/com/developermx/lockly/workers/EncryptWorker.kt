@@ -27,7 +27,7 @@ class EncryptWorker(
 
     override suspend fun doWork(): Result {
         val notificationId = id.hashCode()
-        val notification = createNotification("Iniciando cifrado...")
+        val notification = createNotification()
 
         val foregroundInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ForegroundInfo(notificationId, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
@@ -57,7 +57,7 @@ class EncryptWorker(
                 return Result.failure()
             }
 
-            updateNotification("Cifrando $currentIndex de $totalFiles: '${originalFile.name}'", notificationId)
+            updateNotification(notificationId)
 
             val encryptedFile = VaultManager.importAndEncryptFile(appContext, originalFile, password)
                 ?: throw Exception("Error al cifrar el archivo '${originalFile.name}'" + originalFile.name)
@@ -75,15 +75,15 @@ class EncryptWorker(
         }
     }
 
-    private fun createNotification(contentText: String, isIndeterminate: Boolean = true) = NotificationCompat.Builder(appContext, CHANNEL_ID)
+    private fun createNotification(isIndeterminate: Boolean = true) = NotificationCompat.Builder(appContext, CHANNEL_ID)
         .setContentTitle("Proceso de Cifrado")
         .setSmallIcon(R.drawable.ic_launcher_foreground)
         .setOngoing(true)
         .setProgress(100, 0, isIndeterminate)
         .build()
 
-    private fun updateNotification(contentText: String, notificationId: Int) {
-        val notification = createNotification(contentText)
+    private fun updateNotification(notificationId: Int) {
+        val notification = createNotification()
         notificationManager.notify(notificationId, notification)
     }
 

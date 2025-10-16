@@ -21,7 +21,6 @@ import com.developermx.lockly.data.network.FileUrlRequest
 import com.developermx.lockly.receivers.RetryUploadReceiver
 import java.io.File
 import java.io.IOException
-import java.util.UUID
 
 class FileUploadWorker(
     private val appContext: Context,
@@ -33,16 +32,9 @@ class FileUploadWorker(
 
     override suspend fun doWork(): Result {
         val notificationId = id.hashCode()
-        val notification = createNotification(
-            channelId = PROGRESS_CHANNEL_ID,
-            contentText = "Iniciando subida..."
-        )
+        val notification = createNotification("Iniciando subida...")
 
-        val foregroundInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ForegroundInfo(notificationId, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            ForegroundInfo(notificationId, notification)
-        }
+        val foregroundInfo = ForegroundInfo(notificationId, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         setForeground(foregroundInfo)
 
         val encryptedFilePath = inputData.getString(EncryptWorker.KEY_ENCRYPTED_FILE_PATH)
@@ -115,8 +107,8 @@ class FileUploadWorker(
         }
     }
 
-    private fun createNotification(channelId: String, contentText: String) =
-        NotificationCompat.Builder(appContext, channelId)
+    private fun createNotification(contentText: String) =
+        NotificationCompat.Builder(appContext, PROGRESS_CHANNEL_ID)
             .setContentTitle("Proceso de Subida")
             .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
@@ -125,7 +117,7 @@ class FileUploadWorker(
             .build()
 
     private fun updateNotification(contentText: String, notificationId: Int) {
-        val notification = createNotification(PROGRESS_CHANNEL_ID, contentText)
+        val notification = createNotification(contentText)
         notificationManager.notify(notificationId, notification)
     }
 
@@ -165,8 +157,7 @@ class FileUploadWorker(
     }
 
     private fun createNotificationChannels() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val progressChannel = NotificationChannel(
+        val progressChannel = NotificationChannel(
                 PROGRESS_CHANNEL_ID,
                 "Subidas en Progreso",
                 NotificationManager.IMPORTANCE_LOW
@@ -181,10 +172,9 @@ class FileUploadWorker(
             ).apply {
                 description = "Notificaciones para errores al subir archivos"
             }
-            
-            notificationManager.createNotificationChannel(progressChannel)
-            notificationManager.createNotificationChannel(errorChannel)
-        }
+
+        notificationManager.createNotificationChannel(progressChannel)
+        notificationManager.createNotificationChannel(errorChannel)
     }
 
     init {

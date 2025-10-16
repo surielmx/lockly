@@ -30,7 +30,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
@@ -116,7 +116,6 @@ fun MainScreen(
     onDeleteOriginalFile: () -> Unit,
     onDismissDeleteConfirmation: () -> Unit,
     onNavigateBack: (Boolean) -> Boolean,
-    onShareFile: (File) -> Unit,
     showDecryptMultipleDialog: List<File> = emptyList(),
     onShowDecryptMultipleDialog: (List<File>) -> Unit = {},
     onDecryptMultipleFiles: (List<File>) -> Unit = {},
@@ -209,7 +208,7 @@ fun MainScreen(
                             }
                             if (canNavigateBack) {
                                 IconButton(onClick = { onNavigateBack(selectedTab == 0) }) {
-                                    Icon(Icons.Default.ArrowBack, "Atrás")
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Atrás")
                                 }
                             }
                         }
@@ -591,7 +590,7 @@ fun FileExplorerScreen(
     encryptingFiles: Set<String> = emptySet()
 ) {
     val imageCount = files.count { isImageFile(it.name) }
-    val displayAsGrid = !isVault && imageCount > files.size / 2 && imageCount > 0
+    val displayAsGrid = !isVault && imageCount > files.size / 2
 
     Column {
         Breadcrumb(path = currentPath, rootDisplayName = rootDisplayName, rootPath = rootPath, onPathClick = onPathClick)

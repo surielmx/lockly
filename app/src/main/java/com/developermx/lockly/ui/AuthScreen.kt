@@ -409,7 +409,7 @@ fun AuthScreen(
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
-                } else if (hasPassword && !canUseBiometric) {
+                } else if (hasPassword) {
                     // Mostrar mensaje informativo si no hay biometría disponible
                     val biometricStatus = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK)
                     val infoMessage = when (biometricStatus) {

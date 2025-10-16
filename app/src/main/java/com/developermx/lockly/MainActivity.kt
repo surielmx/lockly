@@ -18,7 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import com.developermx.lockly.screens.MainScreen
 import com.developermx.lockly.screens.PermissionRequestScreen
 import com.developermx.lockly.ui.theme.LocklyTheme
@@ -131,7 +131,6 @@ class MainActivity : ComponentActivity() {
                          },
                         onDismissDeleteConfirmation = viewModel::dismissDeleteConfirmationDialog,
                         onNavigateBack = viewModel::navigateBack,
-                        onShareFile = viewModel::shareFile,
                         onShowDecryptMultipleDialog = viewModel::showDecryptMultipleDialog,
                         onDecryptMultipleFiles = viewModel::decryptMultipleFiles,
                         onDismissDecryptMultipleDialog = viewModel::dismissDecryptMultipleDialog,
@@ -171,30 +170,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkPermissions(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Environment.isExternalStorageManager()
-        } else {
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.READ_EXTERNAL_STORAGE
-            ) == PackageManager.PERMISSION_GRANTED
-        }
+        return Environment.isExternalStorageManager()
     }
 
     private fun requestPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            try {
-                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                intent.addCategory("android.intent.category.DEFAULT")
-                intent.data = Uri.parse(String.format("package:%s", applicationContext.packageName))
-                manageStorageLauncher.launch(intent)
-            } catch (e: Exception) {
-                val intent = Intent()
-                intent.action = Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION
-                manageStorageLauncher.launch(intent)
-            }
-        } else {
-            // Implement request for older versions if needed
+        try {
+            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+            intent.addCategory("android.intent.category.DEFAULT")
+            intent.data = "package:${applicationContext.packageName}".toUri()
+            manageStorageLauncher.launch(intent)
+        } catch (_: Exception) {
+            val intent = Intent()
+            intent.action = Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION
+            manageStorageLauncher.launch(intent)
         }
     }
 }

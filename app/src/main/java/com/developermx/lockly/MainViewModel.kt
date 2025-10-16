@@ -22,7 +22,6 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.workDataOf
-import androidx.work.ExistingWorkPolicy
 import androidx.work.Constraints
 import androidx.work.NetworkType
 import com.developermx.lockly.data.network.ApiClient
@@ -64,17 +63,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isDownloading = _isDownloading.asStateFlow()
     private val _missingCloudFiles = MutableStateFlow<List<CloudFile>>(emptyList())
     val missingCloudFiles = _missingCloudFiles.asStateFlow()
-    private val _downloadProgress = MutableStateFlow<DownloadProgress?>(null)
-    val downloadProgress = _downloadProgress.asStateFlow()
-
-    data class DownloadProgress(
-        val downloaded: Int,
-        val total: Int,
-        val currentFile: String = ""
-    ) {
-        val percentage: Int get() = if (total > 0) (downloaded * 100) / total else 0
-        val message: String get() = "Descargando $downloaded de $total archivos"
-    }
 
     // --- UI & Progress States ---
     private val _creatingTempFile = MutableStateFlow<Set<String>>(emptySet())
@@ -154,19 +142,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         Log.d(SYNC_TAG, "Sync marked as completed")
     }
 
-    /**
-     * Resets the sync state. Useful when user logs out or wants to force a fresh sync.
-     */
-    fun resetSyncState() {
-        val prefs = getApplication<Application>().getSharedPreferences(SYNC_PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().apply {
-            putBoolean(KEY_INITIAL_SYNC_COMPLETED, false)
-            putLong(KEY_LAST_SYNC_TIMESTAMP, 0)
-            apply()
-        }
-        Log.d(SYNC_TAG, "Sync state reset")
-    }
-
     init {
         if (hasPermissions) {
             loadUnencryptedFiles()
@@ -184,17 +159,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun loadVaultFilesSync() {
+    private fun loadVaultFilesSync() {
         _vaultFiles.value = _currentVaultPath.value.listFiles()?.sorted()?.toList() ?: emptyList()
-    }
-
-    /**
-     * Forces a cloud sync regardless of cache status.
-     * Useful when user manually refreshes or when implementing pull-to-refresh.
-     */
-    fun forceCloudSync() {
-        Log.d(SYNC_TAG, "Force cloud sync requested by user")
-        syncCloudFiles()
     }
 
     private fun syncCloudFiles() {
@@ -221,7 +187,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (response.isSuccessful) {
                     val apiResponse = response.body()
                     if (apiResponse != null && apiResponse.success) {
-                        val cloudFiles = apiResponse.data?.filter { !it.fileName.isNullOrEmpty() } ?: emptyList()
+                        val cloudFiles = apiResponse.data?.filterNot { it.fileName.isNullOrEmpty() } ?: emptyList()
 
                         // SOLO mostrar el banner si NO hay archivos locales (primera vez en el dispositivo)
                         // Si ya tiene archivos locales, NO mostrar el banner aunque falten algunos
@@ -288,7 +254,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Initialize download progress
         _isDownloading.value = true
-        _downloadProgress.value = DownloadProgress(downloaded = 0, total = totalFiles)
 
         // Network constraint: require internet connection
         val constraints = Constraints.Builder()
@@ -367,7 +332,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     }
                                 }
                             }
-                        } catch (e: StopCollectingException) {
+                        } catch (_: StopCollectingException) {
                             // Expected - worker finished
                         } catch (e: Exception) {
                             Log.e(TAG, "Error observing download work $workId", e)
@@ -453,7 +418,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 showSnackbarMessage("Error al monitorear la sincronización.")
             } finally {
                 _isDownloading.value = false
-                _downloadProgress.value = null
                 Log.i(TAG, "Download observation completed. UI state updated.")
             }
         }
@@ -908,24 +872,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Cerrar el diálogo después de completar la eliminación
                 _showDeleteMultipleTempDialog.value = emptyList()
             }
-        }
-    }
-
-    fun deleteTempFiles(files: List<File>) {
-        viewModelScope.launch(coroutineExceptionHandler) {
-            var deletedCount = 0
-            for (file in files) {
-                try {
-                    val tempFile = File(publicTempDir, VaultManager.getOriginalFileName(file))
-                    if (tempFile.exists() && tempFile.delete()) {
-                        deletedCount++
-                        _inUseFiles.update { it - tempFile.name }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error al eliminar el archivo temporal: ${file.name}", e)
-                }
-            }
-            showSnackbarMessage("$deletedCount de ${files.size} archivos temporales eliminados.")
         }
     }
 
