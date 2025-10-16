@@ -131,6 +131,7 @@ fun MainScreen(
     var selectedFiles by remember { mutableStateOf(setOf<File>()) }
     var vaultSelectionMode by remember { mutableStateOf(false) }
     var vaultSelectedFiles by remember { mutableStateOf(setOf<File>()) }
+    var filesToEncrypt by remember { mutableStateOf<List<File>?>(null) }
 
     val navItems = listOf(
         NavItem("Bóveda", Icons.Default.Cloud),
@@ -246,9 +247,8 @@ fun MainScreen(
             if (selectedTab == 1 && selectionMode && selectedFiles.isNotEmpty()) {
                 FloatingActionButton(
                     onClick = {
-                        onEncryptFiles(selectedFiles.toList())
-                        selectionMode = false
-                        selectedFiles = emptySet()
+                        // Mostrar diálogo de confirmación para cifrar múltiples archivos
+                        filesToEncrypt = selectedFiles.toList()
                     }
                 ) {
                     Icon(Icons.Default.Cloud, "Cifrar archivos")
@@ -342,6 +342,10 @@ fun MainScreen(
                             } else {
                                 vaultSelectedFiles + file
                             }
+                            // Desactivar modo selección si no hay archivos seleccionados
+                            if (vaultSelectedFiles.isEmpty()) {
+                                vaultSelectionMode = false
+                            }
                         },
                         onFileLongClick = { file ->
                             if (!vaultSelectionMode && !file.isDirectory) {
@@ -355,7 +359,12 @@ fun MainScreen(
                 1 -> FileExplorerScreen(
                     files = unencryptedFiles,
                     missingCloudFiles = emptyList(),
-                    onFileClick = { if (!selectionMode) onEncryptFiles(listOf(it)) },
+                    onFileClick = {
+                        if (!selectionMode) {
+                            // Mostrar diálogo de confirmación para cifrar un archivo
+                            filesToEncrypt = listOf(it)
+                        }
+                    },
                     onFolderClick = onFolderClick,
                     getVisibleFileCount = getVisibleFileCount,
                     currentPath = currentPath,
@@ -373,6 +382,10 @@ fun MainScreen(
                             selectedFiles - file
                         } else {
                             selectedFiles + file
+                        }
+                        // Desactivar modo selección si no hay archivos seleccionados
+                        if (selectedFiles.isEmpty()) {
+                            selectionMode = false
                         }
                     },
                     onFileLongClick = {
@@ -481,6 +494,39 @@ fun MainScreen(
                     }
                 }
             )
+        }
+
+        // Diálogo de confirmación para cifrado de archivos
+        filesToEncrypt?.let { files ->
+            if (files.isNotEmpty()) {
+                AlertDialog(
+                    onDismissRequest = { filesToEncrypt = null },
+                    title = { Text("Cifrar archivos") },
+                    text = {
+                        if (files.size == 1) {
+                            Text("¿Deseas cifrar el archivo '${files[0].name}'?")
+                        } else {
+                            Text("¿Deseas cifrar ${files.size} archivos?")
+                        }
+                    },
+                    confirmButton = {
+                        Button(onClick = {
+                            onEncryptFiles(files)
+                            filesToEncrypt = null
+                            // Salir del modo selección si estaba activo
+                            selectionMode = false
+                            selectedFiles = emptySet()
+                        }) {
+                            Text("Cifrar")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { filesToEncrypt = null }) {
+                            Text("Cancelar")
+                        }
+                    }
+                )
+            }
         }
     }
 }
