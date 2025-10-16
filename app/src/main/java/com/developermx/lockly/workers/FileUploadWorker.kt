@@ -17,7 +17,7 @@ import com.developermx.lockly.R
 import com.developermx.lockly.VaultManager
 import com.developermx.lockly.data.network.ApiClient
 import com.developermx.lockly.data.network.FileUploader
-import com.developermx.lockly.data.network.UploadUrlRequest
+import com.developermx.lockly.data.network.FileUrlRequest
 import com.developermx.lockly.receivers.RetryUploadReceiver
 import java.io.File
 import java.io.IOException
@@ -66,21 +66,26 @@ class FileUploadWorker(
             val userId = VaultManager.getUserId(appContext)
                 ?: throw IllegalStateException("User ID no encontrado, abortando subida.")
 
-            val remoteFileName = "${UUID.randomUUID()}.enc"
+            val remoteFileName = encryptedFile.name
             Log.d(TAG, "Starting upload for ${encryptedFile.name} as $remoteFileName")
 
             updateNotification("Solicitando URL de subida para '${encryptedFile.name}'", notificationId)
-            val request = UploadUrlRequest(
+            val request = FileUrlRequest(
                 userId = userId,
                 fileName = remoteFileName
             )
+            
             val response = ApiClient.apiService.getUploadUrl(request)
-
-            if (!response.success || response.data == null) {
-                throw IOException("No se pudo obtener la URL de subida: ${response.error}")
+            if (!response.isSuccessful) {
+                throw IOException("Error de red al obtener URL de subida: ${response.code()}")
             }
 
-            val uploadUrl = response.data.url
+            val apiResponse = response.body()
+            if (apiResponse == null || !apiResponse.success || apiResponse.data == null) {
+                throw IOException("No se pudo obtener la URL de subida: ${apiResponse?.error}")
+            }
+
+            val uploadUrl = apiResponse.data.url
             Log.d(TAG, "URL de subida obtenida. Subiendo '${encryptedFile.name}'...")
 
             updateNotification("Subiendo '${encryptedFile.name}'...", notificationId)

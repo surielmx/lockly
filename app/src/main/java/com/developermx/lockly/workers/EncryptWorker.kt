@@ -13,6 +13,7 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.developermx.lockly.R
+import com.developermx.lockly.SessionManager
 import com.developermx.lockly.VaultManager
 import java.io.File
 
@@ -44,9 +45,17 @@ class EncryptWorker(
         return try {
             val originalFile = File(filePath)
 
+            // Obtener contraseña de la sesión
+            val password = SessionManager.getPassword()
+            if (password.isNullOrBlank()) {
+                Log.e(TAG, "No password available in session or it is blank.")
+                showFinalNotification("Error de sesión", "Contraseña no disponible. Inicia sesión de nuevo.", notificationId, isError = true)
+                return Result.failure()
+            }
+
             updateNotification("Cifrando '${originalFile.name}'", notificationId)
 
-            val encryptedFile = VaultManager.importAndEncryptFile(appContext, originalFile)
+            val encryptedFile = VaultManager.importAndEncryptFile(appContext, originalFile, password)
                 ?: throw Exception("Error al cifrar el archivo '${originalFile.name}'" + originalFile.name)
 
             showFinalNotification("Cifrado completado", "'${originalFile.name}' ha sido asegurado en tu bóveda.", notificationId)

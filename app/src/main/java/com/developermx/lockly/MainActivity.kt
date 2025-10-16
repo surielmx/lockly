@@ -40,6 +40,24 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // Inicializar SessionManager con el contexto de la aplicación
+        SessionManager.init(applicationContext)
+
+        // Obtener contraseña del Intent (viene de AuthActivity)
+        val password = intent.getStringExtra("_vlt_pwd.bin")
+        if (password != null) {
+            SessionManager.setPassword(password)
+            Log.d("MainActivity", "Password set in SessionManager")
+        } else {
+            // Si no hay contraseña en el intent, intentar cargar desde la sesión
+            val sessionPassword = SessionManager.getPassword()
+            if (sessionPassword != null) {
+                Log.d("MainActivity", "Password loaded from session")
+            } else {
+                Log.w("MainActivity", "No password available - session expired")
+            }
+        }
+
         setContent {
             LocklyTheme {
                 val unencryptedFiles by viewModel.unencryptedFiles.collectAsState()
@@ -51,7 +69,13 @@ class MainActivity : ComponentActivity() {
                 val filesToDelete by viewModel.showDeleteConfirmationDialog.collectAsState()
                 val recentlyEncryptedFiles by viewModel.recentlyEncryptedFiles.collectAsState()
                 val inUseFiles by viewModel.inUseFiles.collectAsState()
-                val uploadedFiles by viewModel.uploadedFiles.collectAsState() // Collect the new state
+                val uploadedFiles by viewModel.uploadedFiles.collectAsState()
+                val isSyncing by viewModel.isSyncing.collectAsState()
+                val isDownloading by viewModel.isDownloading.collectAsState()
+                val missingCloudFiles by viewModel.missingCloudFiles.collectAsState()
+                val showDeleteTempDialog by viewModel.showDeleteTempDialog.collectAsState()
+                val showDecryptMultipleDialog by viewModel.showDecryptMultipleDialog.collectAsState()
+                val showDeleteMultipleTempDialog by viewModel.showDeleteMultipleTempDialog.collectAsState()
 
                 LaunchedEffect(Unit) {
                     viewModel.snackbarMessage.collectLatest { message ->
@@ -71,20 +95,26 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (viewModel.hasPermissions) {
-                    val fileToDelete = if (filesToDelete.isNotEmpty()) filesToDelete.first() else null
-
                     MainScreen(
                         snackbarHostState = snackbarHostState,
                         unencryptedFiles = unencryptedFiles,
                         vaultFiles = vaultFiles,
                         creatingTempFile = creatingTempFile,
-                        fileToDeleteAfterEncryption = fileToDelete,
+                        filesToDeleteAfterEncryption = if (filesToDelete.isNotEmpty()) filesToDelete else null,
                         inUseFiles = inUseFiles,
                         recentlyEncryptedFiles = recentlyEncryptedFiles,
-                        uploadedFiles = uploadedFiles, // Pass the new state to the UI
+                        uploadedFiles = uploadedFiles,
+                        isSyncing = isSyncing,
+                        isDownloading = isDownloading,
+                        missingCloudFiles = missingCloudFiles,
+                        showDeleteTempDialog = showDeleteTempDialog,
+                        showDecryptMultipleDialog = showDecryptMultipleDialog,
+                        showDeleteMultipleTempDialog = showDeleteMultipleTempDialog,
                         onEncryptFiles = viewModel::encryptAndUploadFiles,
-                        onDecryptAndOpenFile = viewModel::decryptAndOpenFile,
-                        onDeleteTempFile = viewModel::deleteTempFile,
+                        onDecryptAndOpenFile = viewModel::onVaultFileClick,
+                        onDeleteTempFile = viewModel::confirmDeleteTempFile,
+                        onDismissDeleteTempDialog = viewModel::dismissDeleteTempDialog,
+                        onDownloadMissingFiles = viewModel::downloadMissingFiles,
                         onFolderClick = viewModel::onFolderClick,
                         onVaultFolderClick = viewModel::onVaultFolderClick,
                         getVisibleFileCount = viewModel::getVisibleFileCount,
@@ -93,14 +123,20 @@ class MainActivity : ComponentActivity() {
                         vaultRootPath = viewModel.vaultRootPath,
                         onPathClick = viewModel::onPathClick,
                         onVaultPathClick = viewModel::onVaultPathClick,
-                        onDeleteOriginalFile = { 
+                        onDeleteOriginalFile = {
                             if (filesToDelete.isNotEmpty()) {
                                 viewModel.deleteOriginalFiles(filesToDelete)
                             }
                          },
                         onDismissDeleteConfirmation = viewModel::dismissDeleteConfirmationDialog,
                         onNavigateBack = viewModel::navigateBack,
-                        onShareFile = viewModel::shareFile
+                        onShareFile = viewModel::shareFile,
+                        onShowDecryptMultipleDialog = viewModel::showDecryptMultipleDialog,
+                        onDecryptMultipleFiles = viewModel::decryptMultipleFiles,
+                        onDismissDecryptMultipleDialog = viewModel::dismissDecryptMultipleDialog,
+                        onShowDeleteMultipleTempDialog = { files -> viewModel.showDeleteMultipleTempDialog(files) },
+                        onDeleteMultipleTempFiles = { viewModel.confirmDeleteMultipleTempFiles() },
+                        onDismissDeleteMultipleTempDialog = viewModel::dismissDeleteMultipleTempDialog
                     )
                 } else {
                     PermissionRequestScreen {
@@ -120,6 +156,15 @@ class MainActivity : ComponentActivity() {
             }
         } else {
             viewModel.hasPermissions = false
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Limpiar la sesión cuando la app se destruye
+        if (isFinishing) {
+            SessionManager.clearSession()
+            Log.d("MainActivity", "Session cleared")
         }
     }
 

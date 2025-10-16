@@ -1,16 +1,27 @@
 package com.developermx.lockly.screens
 
-import android.os.Environment
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -18,10 +29,42 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Article
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,15 +76,387 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.rememberAsyncImagePainter
 import com.developermx.lockly.R
+import com.developermx.lockly.data.network.CloudFile
+import com.developermx.lockly.screens.fileviews.getIconForFile
 import com.developermx.lockly.ui.theme.White
-import com.developermx.lockly.utils.getIconForFile
-import kotlinx.coroutines.launch
 import java.io.File
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 
 data class NavItem(val title: String, val icon: ImageVector)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MainScreen(
+    snackbarHostState: SnackbarHostState,
+    unencryptedFiles: List<File>,
+    vaultFiles: List<File>,
+    creatingTempFile: Set<String>,
+    filesToDeleteAfterEncryption: List<File>?,
+    inUseFiles: Set<String>,
+    recentlyEncryptedFiles: Set<String>,
+    uploadedFiles: Set<String>,
+    isSyncing: Boolean,
+    isDownloading: Boolean,
+    missingCloudFiles: List<CloudFile>,
+    showDeleteTempDialog: File?,
+    onEncryptFiles: (List<File>) -> Unit,
+    onDecryptAndOpenFile: (File) -> Unit,
+    onDeleteTempFile: () -> Unit,
+    onDismissDeleteTempDialog: () -> Unit,
+    onDownloadMissingFiles: () -> Unit,
+    onFolderClick: (File) -> Unit,
+    onVaultFolderClick: (File) -> Unit,
+    getVisibleFileCount: (File) -> Int,
+    currentPath: String,
+    currentVaultPath: String,
+    vaultRootPath: String,
+    onPathClick: (String) -> Unit,
+    onVaultPathClick: (String) -> Unit,
+    onDeleteOriginalFile: () -> Unit,
+    onDismissDeleteConfirmation: () -> Unit,
+    onNavigateBack: (Boolean) -> Boolean,
+    onShareFile: (File) -> Unit,
+    showDecryptMultipleDialog: List<File> = emptyList(),
+    onShowDecryptMultipleDialog: (List<File>) -> Unit = {},
+    onDecryptMultipleFiles: (List<File>) -> Unit = {},
+    onDismissDecryptMultipleDialog: () -> Unit = {},
+    showDeleteMultipleTempDialog: List<File> = emptyList(),
+    onShowDeleteMultipleTempDialog: (List<File>) -> Unit = {},
+    onDeleteMultipleTempFiles: () -> Unit = {},
+    onDismissDeleteMultipleTempDialog: () -> Unit = {}
+) {
+    var selectedTab by remember { mutableStateOf(0) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedFiles by remember { mutableStateOf(setOf<File>()) }
+    var vaultSelectionMode by remember { mutableStateOf(false) }
+    var vaultSelectedFiles by remember { mutableStateOf(setOf<File>()) }
+
+    val navItems = listOf(
+        NavItem("Bóveda", Icons.Default.Cloud),
+        NavItem("Archivos", Icons.Default.Home)
+    )
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            TopAppBar(
+                title = {
+                    // Mostrar contador de selección cuando está activo el modo de selección
+                    when {
+                        selectedTab == 0 && vaultSelectionMode -> {
+                            Text("${vaultSelectedFiles.size} seleccionado(s)")
+                        }
+                        selectedTab == 1 && selectionMode -> {
+                            Text("${selectedFiles.size} seleccionado(s)")
+                        }
+                        else -> Text(navItems[selectedTab].title)
+                    }
+                },
+                navigationIcon = {
+                    // Mostrar botón de cerrar en modo selección, o botón de regresar normal
+                    when {
+                        selectedTab == 0 && vaultSelectionMode -> {
+                            IconButton(onClick = {
+                                // Simplemente salir del modo selección sin mostrar diálogos
+                                vaultSelectionMode = false
+                                vaultSelectedFiles = emptySet()
+                            }) {
+                                Icon(Icons.Default.Close, "Salir de selección")
+                            }
+                        }
+                        selectedTab == 1 && selectionMode -> {
+                            IconButton(onClick = {
+                                selectionMode = false
+                                selectedFiles = emptySet()
+                            }) {
+                                Icon(Icons.Default.Close, "Salir de selección")
+                            }
+                        }
+                        else -> {
+                            val canNavigateBack = if (selectedTab == 0) {
+                                currentVaultPath != vaultRootPath
+                            } else {
+                                currentPath != "/storage/emulated/0"
+                            }
+                            if (canNavigateBack) {
+                                IconButton(onClick = { onNavigateBack(selectedTab == 0) }) {
+                                    Icon(Icons.Default.ArrowBack, "Atrás")
+                                }
+                            }
+                        }
+                    }
+                },
+                actions = {
+                    if (isSyncing) {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "Sincronizando",
+                            modifier = Modifier.padding(end = 16.dp)
+                        )
+                    }
+                }
+            )
+        },
+        bottomBar = {
+            BottomAppBar {
+                navItems.forEachIndexed { index, item ->
+                    NavigationBarItem(
+                        icon = { Icon(item.icon, contentDescription = item.title) },
+                        label = { Text(item.title) },
+                        selected = selectedTab == index,
+                        onClick = {
+                            selectedTab = index
+                            selectionMode = false
+                            selectedFiles = emptySet()
+                            vaultSelectionMode = false
+                            vaultSelectedFiles = emptySet()
+                        }
+                    )
+                }
+            }
+        },
+        floatingActionButton = {
+            if (selectedTab == 1 && selectionMode && selectedFiles.isNotEmpty()) {
+                FloatingActionButton(
+                    onClick = {
+                        onEncryptFiles(selectedFiles.toList())
+                        selectionMode = false
+                        selectedFiles = emptySet()
+                    }
+                ) {
+                    Icon(Icons.Default.Cloud, "Cifrar archivos")
+                }
+            }
+            // Botón flotante para la Bóveda - detectar si hay archivos en uso
+            if (selectedTab == 0 && vaultSelectionMode && vaultSelectedFiles.isNotEmpty()) {
+                // Detectar si todos los archivos seleccionados están en uso
+                val filesInUse = vaultSelectedFiles.filter { file ->
+                    val fileName = file.name.removeSuffix(".enc")
+                    inUseFiles.contains(fileName)
+                }
+
+                val allFilesInUse = filesInUse.size == vaultSelectedFiles.size && filesInUse.isNotEmpty()
+
+                FloatingActionButton(
+                    onClick = {
+                        if (allFilesInUse) {
+                            // Si todos los archivos están en uso, mostrar diálogo de eliminación
+                            onShowDeleteMultipleTempDialog(vaultSelectedFiles.toList())
+                        } else {
+                            // Si no todos están en uso, mostrar diálogo de descifrado
+                            onShowDecryptMultipleDialog(vaultSelectedFiles.toList())
+                        }
+                    },
+                    containerColor = if (allFilesInUse) {
+                        Color(0xFFD32F2F) // Rojo para eliminar
+                    } else {
+                        MaterialTheme.colorScheme.primaryContainer // Color por defecto para descifrar
+                    }
+                ) {
+                    Icon(
+                        imageVector = if (allFilesInUse) Icons.Default.Close else Icons.Default.LockOpen,
+                        contentDescription = if (allFilesInUse) "Eliminar archivos temporales" else "Descifrar archivos",
+                        tint = if (allFilesInUse) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+        }
+    ) { padding ->
+        Column(modifier = Modifier.padding(padding)) {
+            if (isSyncing || isDownloading) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+
+            when (selectedTab) {
+                0 -> Column {
+                    // Mostrar banner de archivos faltantes solo si hay archivos para descargar
+                    if (missingCloudFiles.isNotEmpty()) {
+                        MissingFilesSection(
+                            missingFiles = missingCloudFiles,
+                            onDownload = onDownloadMissingFiles,
+                            isDownloading = isDownloading
+                        )
+                    }
+
+                    FileExplorerScreen(
+                        files = vaultFiles,
+                        missingCloudFiles = missingCloudFiles,
+                        onFileClick = { file ->
+                            android.util.Log.d("MainScreen", "Vault file clicked: ${file.name}, selectionMode: $vaultSelectionMode")
+                            if (vaultSelectionMode) {
+                                // En modo selección, toggle la selección
+                                android.util.Log.d("MainScreen", "In selection mode - toggling selection")
+                                vaultSelectedFiles = if (vaultSelectedFiles.contains(file)) {
+                                    vaultSelectedFiles - file
+                                } else {
+                                    vaultSelectedFiles + file
+                                }
+                            } else {
+                                // Fuera de modo selección, descifrar archivo individual
+                                android.util.Log.d("MainScreen", "NOT in selection mode - calling onDecryptAndOpenFile")
+                                onDecryptAndOpenFile(file)
+                            }
+                        },
+                        onFolderClick = onVaultFolderClick,
+                        getVisibleFileCount = getVisibleFileCount,
+                        currentPath = currentVaultPath,
+                        rootPath = vaultRootPath,
+                        rootDisplayName = "Bóveda",
+                        onPathClick = onVaultPathClick,
+                        isVault = true,
+                        inUseFiles = inUseFiles,
+                        recentlyEncryptedFiles = recentlyEncryptedFiles,
+                        uploadedFiles = uploadedFiles,
+                        selectionMode = vaultSelectionMode,
+                        selectedFiles = vaultSelectedFiles,
+                        onToggleFileSelection = { file ->
+                            vaultSelectedFiles = if (vaultSelectedFiles.contains(file)) {
+                                vaultSelectedFiles - file
+                            } else {
+                                vaultSelectedFiles + file
+                            }
+                        },
+                        onFileLongClick = { file ->
+                            if (!vaultSelectionMode && !file.isDirectory) {
+                                vaultSelectionMode = true
+                                vaultSelectedFiles = setOf(file)
+                            }
+                        },
+                        creatingTempFile = creatingTempFile
+                    )
+                }
+                1 -> FileExplorerScreen(
+                    files = unencryptedFiles,
+                    missingCloudFiles = emptyList(),
+                    onFileClick = { if (!selectionMode) onEncryptFiles(listOf(it)) },
+                    onFolderClick = onFolderClick,
+                    getVisibleFileCount = getVisibleFileCount,
+                    currentPath = currentPath,
+                    rootPath = "/storage/emulated/0",
+                    rootDisplayName = "Almacenamiento",
+                    onPathClick = onPathClick,
+                    isVault = false,
+                    inUseFiles = emptySet(),
+                    recentlyEncryptedFiles = emptySet(),
+                    uploadedFiles = emptySet(),
+                    selectionMode = selectionMode,
+                    selectedFiles = selectedFiles,
+                    onToggleFileSelection = { file ->
+                        selectedFiles = if (selectedFiles.contains(file)) {
+                            selectedFiles - file
+                        } else {
+                            selectedFiles + file
+                        }
+                    },
+                    onFileLongClick = {
+                        if (!selectionMode) {
+                            selectionMode = true
+                            selectedFiles = setOf(it)
+                        }
+                    },
+                    creatingTempFile = creatingTempFile
+                )
+            }
+        }
+
+        if (filesToDeleteAfterEncryption != null && filesToDeleteAfterEncryption.isNotEmpty()) {
+            AlertDialog(
+                onDismissRequest = onDismissDeleteConfirmation,
+                title = { Text("Archivo(s) cifrado(s)") },
+                text = {
+                    if (filesToDeleteAfterEncryption.size == 1) {
+                        Text("El archivo '${filesToDeleteAfterEncryption[0].name}' ha sido cifrado y subido a la nube. ¿Deseas eliminar el archivo original?")
+                    } else {
+                        Text("${filesToDeleteAfterEncryption.size} archivos han sido cifrados y subidos a la nube. ¿Deseas eliminar los archivos originales?")
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = onDeleteOriginalFile) {
+                        Text("Eliminar")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = onDismissDeleteConfirmation) {
+                        Text("Conservar")
+                    }
+                }
+            )
+        }
+
+        // Diálogo para eliminar archivo temporal en uso
+        if (showDeleteTempDialog != null) {
+            AlertDialog(
+                onDismissRequest = onDismissDeleteTempDialog,
+                title = { Text("Archivo en uso") },
+                text = {
+                    Text("Este archivo está actualmente en uso. ¿Deseas eliminar la copia temporal de Documentos/Lockly?")
+                },
+                confirmButton = {
+                    Button(onClick = onDeleteTempFile) {
+                        Text("Eliminar")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = onDismissDeleteTempDialog) {
+                        Text("Cancelar")
+                    }
+                }
+            )
+        }
+
+        // Diálogo para descifrado múltiple
+        if (showDecryptMultipleDialog.isNotEmpty()) {
+            AlertDialog(
+                onDismissRequest = onDismissDecryptMultipleDialog,
+                title = { Text("Descifrar archivos") },
+                text = {
+                    Text("¿Deseas descifrar ${showDecryptMultipleDialog.size} archivo(s)?")
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        onDecryptMultipleFiles(showDecryptMultipleDialog)
+                        // Limpiar la selección después de confirmar el descifrado
+                        vaultSelectionMode = false
+                        vaultSelectedFiles = emptySet()
+                    }) {
+                        Text("Descifrar")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = onDismissDecryptMultipleDialog) {
+                        Text("Cancelar")
+                    }
+                }
+            )
+        }
+
+        // Diálogo para eliminación múltiple de archivos temporales
+        if (showDeleteMultipleTempDialog.isNotEmpty()) {
+            AlertDialog(
+                onDismissRequest = onDismissDeleteMultipleTempDialog,
+                title = { Text("Eliminar archivos temporales") },
+                text = {
+                    Text("¿Deseas eliminar ${showDeleteMultipleTempDialog.size} archivo(s) temporal(es)?")
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        onDeleteMultipleTempFiles()
+                        // Limpiar la selección después de confirmar la eliminación
+                        vaultSelectionMode = false
+                        vaultSelectedFiles = emptySet()
+                    }) {
+                        Text("Eliminar")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = onDismissDeleteMultipleTempDialog) {
+                        Text("Cancelar")
+                    }
+                }
+            )
+        }
+    }
+}
 
 @Composable
 fun Breadcrumb(path: String, rootDisplayName: String, rootPath: String, onPathClick: (String) -> Unit) {
@@ -69,13 +484,14 @@ fun Breadcrumb(path: String, rootDisplayName: String, rootPath: String, onPathCl
 }
 
 fun isImageFile(fileName: String): Boolean {
-    val extension = fileName.removeSuffix(".enc").substringAfterLast('.', "").lowercase()
+    val extension = fileName.removeSuffix(".enc").substringAfterLast('.', "".lowercase())
     return extension in listOf("jpg", "jpeg", "png", "gif", "bmp", "webp")
 }
 
 @Composable
 fun FileExplorerScreen(
     files: List<File>,
+    missingCloudFiles: List<CloudFile>,
     onFileClick: (File) -> Unit,
     onFolderClick: (File) -> Unit,
     getVisibleFileCount: (File) -> Int,
@@ -90,7 +506,8 @@ fun FileExplorerScreen(
     selectionMode: Boolean,
     selectedFiles: Set<File>,
     onToggleFileSelection: (File) -> Unit,
-    onFileLongClick: (File) -> Unit
+    onFileLongClick: (File) -> Unit,
+    creatingTempFile: Set<String>
 ) {
     val imageCount = files.count { isImageFile(it.name) }
     val displayAsGrid = !isVault && imageCount > files.size / 2 && imageCount > 0
@@ -98,7 +515,7 @@ fun FileExplorerScreen(
     Column {
         Breadcrumb(path = currentPath, rootDisplayName = rootDisplayName, rootPath = rootPath, onPathClick = onPathClick)
 
-        if (files.isEmpty()) {
+        if (files.isEmpty() && missingCloudFiles.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -124,7 +541,7 @@ fun FileExplorerScreen(
         } else if (displayAsGrid) {
             ImageGrid(files, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick)
         } else {
-            FileList(files, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, recentlyEncryptedFiles, uploadedFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick)
+            FileList(files, missingCloudFiles, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, recentlyEncryptedFiles, uploadedFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick, creatingTempFile)
         }
     }
 }
@@ -132,6 +549,7 @@ fun FileExplorerScreen(
 @Composable
 fun FileList(
     files: List<File>,
+    missingCloudFiles: List<CloudFile>,
     onFileClick: (File) -> Unit,
     onFolderClick: (File) -> Unit,
     getVisibleFileCount: (File) -> Int,
@@ -142,14 +560,21 @@ fun FileList(
     selectionMode: Boolean,
     selectedFiles: Set<File>,
     onToggleFileSelection: (File) -> Unit,
-    onFileLongClick: (File) -> Unit
+    onFileLongClick: (File) -> Unit,
+    creatingTempFile: Set<String>
 ) {
     LazyColumn {
         items(files) { file ->
-            FileListItem(file, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, recentlyEncryptedFiles, uploadedFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick)
+            FileListItem(file, onFileClick, onFolderClick, getVisibleFileCount, isVault, inUseFiles, recentlyEncryptedFiles, uploadedFiles, selectionMode, selectedFiles, onToggleFileSelection, onFileLongClick, creatingTempFile)
+        }
+        if (isVault) {
+            items(missingCloudFiles) { cloudFile ->
+                MissingFileListItem(cloudFile)
+            }
         }
     }
 }
+
 
 @Composable
 fun ImageGrid(
@@ -175,6 +600,32 @@ fun ImageGrid(
     }
 }
 
+@Composable
+fun MissingFileListItem(file: CloudFile) {
+    val displayName = file.fileName.removeSuffix(".enc")
+    val contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = getIconForFile(displayName),
+            contentDescription = displayName,
+            tint = contentColor
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(displayName, maxLines = 1, overflow = TextOverflow.Ellipsis, color = contentColor, fontSize = 18.sp, modifier = Modifier.weight(1f))
+        Icon(
+            imageVector = Icons.Default.CloudDownload,
+            contentDescription = "No descargado",
+            tint = contentColor
+        )
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FileListItem(
@@ -189,7 +640,8 @@ fun FileListItem(
     selectionMode: Boolean,
     selectedFiles: Set<File>,
     onToggleFileSelection: (File) -> Unit,
-    onFileLongClick: (File) -> Unit
+    onFileLongClick: (File) -> Unit,
+    creatingTempFile: Set<String>
 ) {
     val displayName = if (isVault) file.name.removeSuffix(".enc") else file.name
     val itemCount = if (file.isDirectory) getVisibleFileCount(file) else 0
@@ -197,6 +649,7 @@ fun FileListItem(
     val isFileInUse = inUseFiles.contains(displayName)
     val isSelected = selectedFiles.contains(file)
     val isUploaded = uploadedFiles.contains(file.name)
+    val isDecrypting = creatingTempFile.contains(file.absolutePath)
 
     val inUseColor = Color(0xFFFFA000)
     val baseContentColor = if (isDimmed) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.onSurface
@@ -217,7 +670,9 @@ fun FileListItem(
                         }
                     }
                 },
-                onLongClick = { if (!isVault && !file.isDirectory) onFileLongClick(file) }
+                onLongClick = {
+                    if (!file.isDirectory) onFileLongClick(file)
+                }
             )
             .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent)
             .padding(16.dp),
@@ -229,9 +684,25 @@ fun FileListItem(
         Spacer(modifier = Modifier.width(16.dp))
 
         Column(modifier = Modifier.weight(1f)) {
-            Text(displayName, maxLines = 1, overflow = TextOverflow.Ellipsis, color = contentColor, fontSize = 18.sp)
+            Text(displayName, color = contentColor, fontSize = 18.sp)
             if (file.isDirectory) {
                 Text("$itemCount items", style = MaterialTheme.typography.bodyMedium, color = contentColor, fontSize = 14.sp)
+            }
+        }
+
+        // Indicador de descifrado en progreso
+        AnimatedVisibility(
+            visible = isVault && isDecrypting,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(16.dp))
             }
         }
 
@@ -305,7 +776,20 @@ fun ImageGridItem(
                     imageVector = Icons.Default.LockOpen,
                     contentDescription = "En uso",
                     tint = Color.White,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)
+                )
+            }
+            if (isSelected) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.5f))
+                )
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Seleccionado",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.align(Alignment.Center)
                 )
             }
         }
@@ -313,315 +797,97 @@ fun ImageGridItem(
 }
 
 @Composable
-fun FolderGridItem(folder: File, onFolderClick: (File) -> Unit, getVisibleFileCount: (File) -> Int) {
-    val itemCount = getVisibleFileCount(folder)
+fun FolderGridItem(
+    file: File,
+    onFolderClick: (File) -> Unit,
+    getVisibleFileCount: (File) -> Int
+) {
+    val itemCount = getVisibleFileCount(file)
     val isDimmed = itemCount == 0
-    val contentColor = if (isDimmed) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.onSurface
 
     Card(
         modifier = Modifier
             .padding(4.dp)
-            .clickable { if (itemCount > 0) onFolderClick(folder) },
-        colors = CardDefaults.cardColors(containerColor = if(isDimmed) MaterialTheme.colorScheme.surface.copy(alpha=0.38f) else MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(enabled = !isDimmed) { onFolderClick(file) },
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
-            modifier = Modifier.height(128.dp).padding(8.dp),
+            modifier = Modifier
+                .height(128.dp)
+                .padding(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Icon(Icons.Default.Folder, contentDescription = "Carpeta", modifier = Modifier.size(48.dp), tint = contentColor)
-            Spacer(Modifier.height(8.dp))
-            Text(folder.name, maxLines = 1, overflow = TextOverflow.Ellipsis, color = contentColor)
-            Text("$itemCount items", style = MaterialTheme.typography.bodySmall, color = contentColor)
+            Icon(
+                imageVector = Icons.Default.Folder,
+                contentDescription = file.name,
+                modifier = Modifier.size(64.dp),
+                tint = if (isDimmed) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = file.name,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = if (isDimmed) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.onSurface
+            )
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(
-    snackbarHostState: SnackbarHostState,
-    unencryptedFiles: List<File>,
-    vaultFiles: List<File>,
-    creatingTempFile: Set<String>,
-    fileToDeleteAfterEncryption: File?,
-    inUseFiles: Set<String>,
-    recentlyEncryptedFiles: Set<String>,
-    uploadedFiles: Set<String>,
-    onEncryptFiles: (List<File>) -> Unit,
-    onDecryptAndOpenFile: (File) -> Unit,
-    onDeleteTempFile: (File) -> Unit,
-    onFolderClick: (File) -> Unit,
-    onVaultFolderClick: (File) -> Unit,
-    getVisibleFileCount: (File) -> Int,
-    currentPath: String,
-    currentVaultPath: String,
-    vaultRootPath: String,
-    onPathClick: (String) -> Unit,
-    onVaultPathClick: (String) -> Unit,
-    onDeleteOriginalFile: (File) -> Unit,
-    onDismissDeleteConfirmation: () -> Unit,
-    onNavigateBack: (Boolean) -> Boolean,
-    onShareFile: (File) -> Unit
+fun MissingFilesSection(
+    missingFiles: List<CloudFile>,
+    onDownload: () -> Unit,
+    isDownloading: Boolean
 ) {
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
-    var selectedTab by remember { mutableIntStateOf(0) }
-    val navItems = listOf(
-        NavItem("Bóveda", Icons.Filled.Security),
-        NavItem("Explorador", Icons.AutoMirrored.Filled.Article)
-    )
-
-    var selectionMode by remember { mutableStateOf(false) }
-    var selectedFiles by remember { mutableStateOf(emptySet<File>()) }
-
-    fun clearSelection() {
-        selectionMode = false
-        selectedFiles = emptySet()
-    }
-
-    BackHandler(enabled = true) {
-        if (selectionMode) {
-            clearSelection()
-        } else if (!onNavigateBack(selectedTab == 0)) {
-            // App exit logic
-        }
-    }
-
-    var showOpenDialog by remember { mutableStateOf<File?>(null) }
-    var showDeleteTempFileDialog by remember { mutableStateOf<File?>(null) }
-    var showEncryptDialog by remember { mutableStateOf<File?>(null) }
-    var showEncryptMultipleDialog by remember { mutableStateOf(false) }
-
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet {
-                Text("Lockly", modifier = Modifier.padding(16.dp))
-                Spacer(Modifier.height(16.dp))
-            }
-        }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-            topBar = {
-                if (selectionMode) {
-                    TopAppBar(
-                        title = { Text("${selectedFiles.size} seleccionados") },
-                        navigationIcon = {
-                            IconButton(onClick = { clearSelection() }) {
-                                Icon(Icons.Default.Close, contentDescription = "Cerrar selección")
-                            }
-                        }
-                    )
-                } else {
-                    TopAppBar(
-                        title = { Text(navItems[selectedTab].title) },
-                        navigationIcon = {
-                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                Icon(Icons.Default.Menu, contentDescription = "Menú")
-                            }
-                        }
-                    )
-                }
-            },
-            bottomBar = {
-                if (!selectionMode) { 
-                    NavigationBar {
-                        navItems.forEachIndexed { index, item ->
-                            NavigationBarItem(
-                                icon = { Icon(item.icon, contentDescription = item.title) },
-                                label = { Text(item.title) },
-                                selected = selectedTab == index,
-                                onClick = { selectedTab = index }
-                            )
-                        }
-                    }
-                }
-            },
-            floatingActionButton = {
-                if (selectionMode && selectedFiles.isNotEmpty()) {
-                    FloatingActionButton(onClick = {
-                        showEncryptMultipleDialog = true
-                    }) {
-                        Icon(Icons.Default.Lock, contentDescription = "Cifrar archivos seleccionados")
-                    }
-                }
-            }
-        ) { innerPadding ->
-            Column(modifier = Modifier.padding(innerPadding)) {
-                when (selectedTab) {
-                    0 -> FileExplorerScreen(
-                        files = vaultFiles,
-                        onFileClick = { file ->
-                            if (inUseFiles.contains(file.name.removeSuffix(".enc"))) {
-                                showDeleteTempFileDialog = file
-                            } else {
-                                showOpenDialog = file
-                            }
-                        },
-                        onFolderClick = onVaultFolderClick,
-                        getVisibleFileCount = getVisibleFileCount,
-                        currentPath = currentVaultPath,
-                        rootPath = vaultRootPath,
-                        rootDisplayName = "Bóveda",
-                        onPathClick = onVaultPathClick,
-                        isVault = true,
-                        inUseFiles = inUseFiles,
-                        recentlyEncryptedFiles = recentlyEncryptedFiles,
-                        uploadedFiles = uploadedFiles,
-                        selectionMode = false, 
-                        selectedFiles = emptySet(),
-                        onToggleFileSelection = {},
-                        onFileLongClick = {}
-                    )
-
-                    1 -> FileExplorerScreen(
-                        files = unencryptedFiles,
-                        onFileClick = { file -> if (!selectionMode) showEncryptDialog = file },
-                        onFolderClick = onFolderClick,
-                        getVisibleFileCount = getVisibleFileCount,
-                        currentPath = currentPath,
-                        rootPath = Environment.getExternalStorageDirectory().absolutePath,
-                        rootDisplayName = "Interno",
-                        onPathClick = onPathClick,
-                        isVault = false,
-                        inUseFiles = emptySet(),
-                        recentlyEncryptedFiles = emptySet(),
-                        uploadedFiles = emptySet(),
-                        selectionMode = selectionMode,
-                        selectedFiles = selectedFiles,
-                        onToggleFileSelection = { file ->
-                            selectedFiles = if (selectedFiles.contains(file)) {
-                                selectedFiles - file
-                            } else {
-                                selectedFiles + file
-                            }
-                            if (selectedFiles.isEmpty()) {
-                                selectionMode = false
-                            }
-                        },
-                        onFileLongClick = { file ->
-                            if (!selectionMode) {
-                                selectionMode = true
-                                selectedFiles = setOf(file)
-                            }
-                        }
-                    )
-                }
-            }
-        }
-    }
-
-    if (showEncryptMultipleDialog) {
-        AlertDialog(
-            onDismissRequest = { showEncryptMultipleDialog = false },
-            title = { Text("Cifrar archivos", fontSize = 20.sp) },
-            text = { Text("¿Deseas cifrar y mover ${selectedFiles.size} archivos a la bóveda?", fontSize = 16.sp) },
-            confirmButton = {
-                TextButton(onClick = {
-                    onEncryptFiles(selectedFiles.toList())
-                    showEncryptMultipleDialog = false
-                    clearSelection()
-                }) { Text("Cifrar") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEncryptMultipleDialog = false }) { Text("Cancelar") }
-            }
-        )
-    }
-
-    if (!selectionMode) {
-        showEncryptDialog?.let { file ->
-            AlertDialog(
-                onDismissRequest = { showEncryptDialog = null },
-                title = { Text("Cifrar archivo", fontSize = 20.sp) },
-                text = { Text("¿Deseas cifrar y mover este archivo a la bóveda?", fontSize = 16.sp) },
-                confirmButton = {
-                    TextButton(onClick = {
-                        onEncryptFiles(listOf(file)) 
-                        showEncryptDialog = null
-                    }) { Text("Cifrar") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showEncryptDialog = null }) { Text("Cancelar") }
-                }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                Icons.Default.CloudOff,
+                contentDescription = "Archivos Faltantes",
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.onSecondaryContainer
             )
-        }
-    }
-
-    fileToDeleteAfterEncryption?.let {
-        AlertDialog(
-            onDismissRequest = onDismissDeleteConfirmation,
-            title = { Text("Cifrado completado", fontSize = 20.sp) },
-            text = { Text("El archivo se ha cifrado con éxito. ¿Deseas eliminar el archivo original?", fontSize = 16.sp) },
-            confirmButton = {
-                TextButton(onClick = { onDeleteOriginalFile(it) }) { Text("Eliminar") }
-            },
-            dismissButton = {
-                TextButton(onClick = { onDismissDeleteConfirmation() }) { Text("Conservar") }
-            }
-        )
-    }
-
-    showOpenDialog?.let { file ->
-        val isLoading = creatingTempFile.contains(file.absolutePath)
-        AlertDialog(
-            onDismissRequest = { if (!isLoading) showOpenDialog = null },
-            title = { Text("Abrir archivo", fontSize = 20.sp) },
-            text = {
-                if (isLoading) {
-                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "${missingFiles.size} archivo(s) en la nube no están en este dispositivo.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+            Button(
+                onClick = onDownload,
+                enabled = !isDownloading,
+                modifier = Modifier.fillMaxWidth(0.8f)
+            ) {
+                if (isDownloading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
                 } else {
-                    Text("Se creará una copia temporal para usarla en otras aplicaciones. ¿Qué deseas hacer?", fontSize = 16.sp)
+                    Icon(
+                        Icons.Default.CloudDownload,
+                        contentDescription = "Descargar",
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    Text("Descargar todo")
                 }
-            },
-            confirmButton = {
-                Row {
-                    TextButton(
-                        onClick = {
-                            onDecryptAndOpenFile(file)
-                            showOpenDialog = null
-                        },
-                        enabled = !isLoading
-                    ) { Text("Abrir") }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    TextButton(
-                        onClick = {
-                            onShareFile(file)
-                            showOpenDialog = null
-                        },
-                        enabled = !isLoading
-                    ) { Text("Compartir") }
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { showOpenDialog = null },
-                    enabled = !isLoading
-                ) { Text("Cancelar") }
             }
-        )
-    }
-
-
-    showDeleteTempFileDialog?.let { file ->
-        AlertDialog(
-            onDismissRequest = { showDeleteTempFileDialog = null },
-            title = { Text("Dejar de usar archivo", fontSize = 20.sp) },
-            text = { Text("¿Deseas eliminar la copia temporal de este archivo? Ya no estará disponible para otras aplicaciones.", fontSize = 16.sp) },
-            confirmButton = {
-                TextButton(onClick = {
-                    onDeleteTempFile(file)
-                    showDeleteTempFileDialog = null
-                }) { Text("Eliminar") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteTempFileDialog = null }) { Text("Cancelar") }
-            }
-        )
+        }
     }
 }

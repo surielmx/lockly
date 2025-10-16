@@ -11,13 +11,17 @@ import androidx.core.net.toUri
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.google.crypto.tink.Aead
-import com.lockly.vault.KeystoreHelper
+import com.google.crypto.tink.aead.AeadConfig
+import com.google.crypto.tink.aead.AesGcmKeyManager
+import com.google.crypto.tink.subtle.AesGcmJce
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.MessageDigest
 import java.util.UUID
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 
 object VaultManager {
 
@@ -58,7 +62,7 @@ object VaultManager {
     }
 
     fun savePasswordAndUserId(context: Context, password: String) {
-        val userId = UserIdGenerator.generate(context, password)
+        val userId = UserIdGenerator.generate(password)
         val passwordHash = hashPassword(password, userId.toByteArray()) // Use userId as salt for the hash
 
         getEncryptedPrefs(context).edit {
@@ -84,7 +88,7 @@ object VaultManager {
 
         Log.w(TAG, "User ID is missing from EncryptedSharedPreferences. Attempting to repair.")
         try {
-            val userId = UserIdGenerator.generate(context, password)
+            val userId = UserIdGenerator.generate(password)
             prefs.edit {
                 putString(KEY_USER_ID, userId)
             }
@@ -96,9 +100,38 @@ object VaultManager {
 
     // --- Métodos de Cifrado de Archivos ---
 
-    private fun getAead(context: Context): Aead {
-        return KeystoreHelper.getOrCreateMasterKey(context).getPrimitive(Aead::class.java)
+    init {
+        // Inicializar Tink
+        AeadConfig.register()
     }
+
+    /**
+     * Deriva una clave de cifrado desde la contraseña maestra usando PBKDF2.
+     * Esta clave es la misma en todos los dispositivos con la misma contraseña.
+     */
+    private fun deriveKeyFromPassword(password: String): ByteArray {
+        if (password.isBlank()) {
+            throw IllegalArgumentException("Password for key derivation must not be empty or blank.")
+        }
+        val salt = GLOBAL_SALT.toByteArray()
+        val spec = PBEKeySpec(password.toCharArray(), salt, ITERATIONS, KEY_LENGTH)
+        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        return factory.generateSecret(spec).encoded
+    }
+
+    /**
+     * Obtiene un AEAD (Authenticated Encryption with Associated Data) desde la contraseña.
+     * Usa AES-GCM de 256 bits derivado desde la contraseña maestra.
+     */
+    private fun getAead(password: String): Aead {
+        val keyBytes = deriveKeyFromPassword(password)
+        return AesGcmJce(keyBytes)
+    }
+
+    // Constantes para derivación de clave (las mismas que UserIdGenerator para consistencia)
+    private const val ITERATIONS = 100000
+    private const val KEY_LENGTH = 256
+    private const val GLOBAL_SALT = "d8f3b4c1e5a6f2d7c8b9a0d1e2f3g4h5i6j7k8l9m0n1o2p3q4r5s6t7u8v9w0x"
 
     private fun getFileNameFromUri(context: Context, uri: Uri): String {
         var fileName: String? = null
@@ -113,14 +146,14 @@ object VaultManager {
         return fileName ?: "${UUID.randomUUID()}"
     }
 
-    fun encryptFileToTemp(context: Context, fileUri: Uri): File? {
+    fun encryptFileToTemp(context: Context, fileUri: Uri, password: String): File? {
         return try {
             val originalFileName = getFileNameFromUri(context, fileUri)
             val tempEncryptedFile = File(context.cacheDir, "$originalFileName.enc")
 
             context.contentResolver.openInputStream(fileUri)?.use { inputStream ->
                 val plainText = inputStream.readBytes()
-                val aead = getAead(context)
+                val aead = getAead(password)
                 val cipherText = aead.encrypt(plainText, ByteArray(0))
                 tempEncryptedFile.writeBytes(cipherText)
             } ?: return null // Devuelve null si no se puede abrir el stream
@@ -137,19 +170,19 @@ object VaultManager {
     }
 
 
-    fun decryptStream(context: Context, inputStream: InputStream, outputStream: OutputStream) {
-        val aead = getAead(context)
+    fun decryptStream(password: String, inputStream: InputStream, outputStream: OutputStream) {
+        val aead = getAead(password)
         val cipherText = inputStream.readBytes()
         val decryptedText = aead.decrypt(cipherText, ByteArray(0))
         outputStream.write(decryptedText)
     }
 
-    fun createTempFileForSharing(context: Context, encryptedFile: File): Uri? {
+    fun createTempFileForSharing(context: Context, encryptedFile: File, password: String): Uri? {
         return try {
             val tempFile = File(context.cacheDir, getOriginalFileName(encryptedFile))
             encryptedFile.inputStream().use { inputStream ->
                 FileOutputStream(tempFile).use { outputStream ->
-                    decryptStream(context, inputStream, outputStream)
+                    decryptStream(password, inputStream, outputStream)
                 }
             }
             FileProvider.getUriForFile(context, "${context.packageName}.provider", tempFile)
@@ -160,8 +193,13 @@ object VaultManager {
     }
 
 
-    fun importAndEncryptFile(context: Context, originalFile: File): File? {
+    fun importAndEncryptFile(context: Context, originalFile: File, password: String): File? {
         Log.d(TAG, "Iniciando proceso de cifrado para: ${originalFile.name}")
+
+        if (password.isBlank()) {
+            Log.e(TAG, "La contraseña para el cifrado está vacía.")
+            return null
+        }
 
         val rootVaultDir = File(context.filesDir, VAULT_DIR)
         val rootStorageDir = Environment.getExternalStorageDirectory().absolutePath
@@ -185,7 +223,7 @@ object VaultManager {
                     return null
                 }
 
-            val aead = getAead(context)
+            val aead = getAead(password)
             val cipherText = aead.encrypt(plainText, ByteArray(0))
 
             encryptedFile.writeBytes(cipherText)

@@ -4,27 +4,21 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import java.util.concurrent.TimeUnit
 
+/**
+ * Singleton object to manage the Retrofit client and provide the API service.
+ */
 object ApiClient {
 
-    private const val BASE_URL = "http://192.168.1.14:3000/" // Using local server IP
+    // IMPORTANT: Replace with the actual base URL of the Lockly API
+    private const val BASE_URL = "http://192.168.1.14:3000/"
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
-        // TEMPORARY WORKAROUND: Hardcoded to true to fix build issues.
-        // TODO: Replace with a proper build-time flag once the project environment is fixed.
-        level = if (true) {
-            HttpLoggingInterceptor.Level.BODY
-        } else {
-            HttpLoggingInterceptor.Level.NONE
-        }
+        level = HttpLoggingInterceptor.Level.BODY
     }
 
-    internal val okHttpClient = OkHttpClient.Builder() // Made internal to be accessible from FileUploader
+    internal val okHttpClient = OkHttpClient.Builder()
         .addInterceptor(loggingInterceptor)
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(90, TimeUnit.SECONDS) // Increased timeout for uploads
         .build()
 
     private val retrofit = Retrofit.Builder()
@@ -33,5 +27,10 @@ object ApiClient {
         .addConverterFactory(GsonConverterFactory.create())
         .build()
 
-    val apiService: LocklyApiService = retrofit.create(LocklyApiService::class.java)
+    /**
+     * Lazily created instance of the [LocklyApiService].
+     */
+    val apiService: LocklyApiService by lazy {
+        retrofit.create(LocklyApiService::class.java)
+    }
 }
