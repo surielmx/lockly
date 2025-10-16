@@ -20,9 +20,13 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("String", "BASE_URL", "\"http://192.168.1.14:3000/\"")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            buildConfigField("String", "BASE_URL", "\"https://api.lockly.dev/\"")
         }
     }
     compileOptions {
@@ -34,6 +38,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

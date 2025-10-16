@@ -1,5 +1,6 @@
 package com.developermx.lockly.data.network
 
+import com.developermx.lockly.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -10,8 +11,10 @@ import retrofit2.converter.gson.GsonConverterFactory
  */
 object ApiClient {
 
-    // IMPORTANT: Replace with the actual base URL of the Lockly API
-    private const val BASE_URL = "http://192.168.1.14:3000/"
+    // Base URL is configured per build variant in build.gradle.kts
+    // Debug: http://192.168.1.14:3000/
+    // Release: https://api.lockly.dev/
+    private const val BASE_URL = BuildConfig.BASE_URL
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BODY

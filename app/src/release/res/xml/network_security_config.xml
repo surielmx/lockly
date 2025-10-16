@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Production: HTTPS only, no cleartext traffic allowed -->
+    <domain-config>
+        <domain includeSubdomains="true">api.lockly.dev</domain>
+    </domain-config>
+</network-security-config>
