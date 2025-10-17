@@ -124,7 +124,10 @@ fun MainScreen(
     onShowDeleteMultipleTempDialog: (List<File>) -> Unit = {},
     onDeleteMultipleTempFiles: () -> Unit = {},
     onDismissDeleteMultipleTempDialog: () -> Unit = {},
-    encryptingFiles: Set<String> = emptySet()
+    encryptingFiles: Set<String> = emptySet(),
+    isProcessingMultipleFiles: Boolean = false,
+    multipleFilesProgress: Pair<Int, Int>? = null,
+    onClearVaultSelection: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableStateOf(0) }
     var selectionMode by remember { mutableStateOf(false) }
@@ -132,6 +135,16 @@ fun MainScreen(
     var vaultSelectionMode by remember { mutableStateOf(false) }
     var vaultSelectedFiles by remember { mutableStateOf(setOf<File>()) }
     var filesToEncrypt by remember { mutableStateOf<List<File>?>(null) }
+
+    // Limpiar la selección cuando se cierra el diálogo de descifrado múltiple
+    androidx.compose.runtime.LaunchedEffect(showDecryptMultipleDialog.isEmpty(), showDeleteMultipleTempDialog.isEmpty()) {
+        if (showDecryptMultipleDialog.isEmpty() && showDeleteMultipleTempDialog.isEmpty() && !isProcessingMultipleFiles) {
+            if (vaultSelectionMode && vaultSelectedFiles.isNotEmpty()) {
+                vaultSelectionMode = false
+                vaultSelectedFiles = emptySet()
+            }
+        }
+    }
 
     val navItems = listOf(
         NavItem("Bóveda", Icons.Default.Cloud),
@@ -447,24 +460,67 @@ fun MainScreen(
 
         // Diálogo para descifrado múltiple
         if (showDecryptMultipleDialog.isNotEmpty()) {
+            // Logging para depuración
+            android.util.Log.d("MainScreen", "Decrypt Dialog - isProcessing: $isProcessingMultipleFiles, progress: $multipleFilesProgress")
+
             AlertDialog(
-                onDismissRequest = onDismissDecryptMultipleDialog,
+                onDismissRequest = if (isProcessingMultipleFiles) {
+                    {} // Bloquear cierre durante procesamiento
+                } else {
+                    onDismissDecryptMultipleDialog
+                },
                 title = { Text("Descifrar archivos") },
                 text = {
-                    Text("¿Deseas descifrar ${showDecryptMultipleDialog.size} archivo(s)?")
+                    // Debug logging en cada recomposición
+                    android.util.Log.d("MainScreen", "Dialog text recomposing - isProcessing: $isProcessingMultipleFiles, progress: $multipleFilesProgress")
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        when {
+                            isProcessingMultipleFiles -> {
+                                android.util.Log.d("MainScreen", "SHOWING PROGRESS UI - progress: $multipleFilesProgress")
+                                // Mostrar progreso
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                if (multipleFilesProgress != null && multipleFilesProgress.first > 0) {
+                                    Text(
+                                        "Procesando archivo ${multipleFilesProgress.first} de ${multipleFilesProgress.second}...",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                } else {
+                                    Text(
+                                        "Preparando...",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                            }
+                            else -> {
+                                android.util.Log.d("MainScreen", "SHOWING NORMAL UI")
+                                Text("¿Deseas descifrar ${showDecryptMultipleDialog.size} archivo(s)?")
+                            }
+                        }
+                    }
                 },
                 confirmButton = {
-                    Button(onClick = {
-                        onDecryptMultipleFiles(showDecryptMultipleDialog)
-                        // Limpiar la selección después de confirmar el descifrado
-                        vaultSelectionMode = false
-                        vaultSelectedFiles = emptySet()
-                    }) {
+                    Button(
+                        onClick = {
+                            onDecryptMultipleFiles(showDecryptMultipleDialog)
+                            // NO limpiar la selección aquí - se limpiará cuando termine el proceso
+                        },
+                        enabled = !isProcessingMultipleFiles
+                    ) {
                         Text("Descifrar")
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = onDismissDecryptMultipleDialog) {
+                    TextButton(
+                        onClick = onDismissDecryptMultipleDialog,
+                        enabled = !isProcessingMultipleFiles
+                    ) {
                         Text("Cancelar")
                     }
                 }
@@ -474,23 +530,58 @@ fun MainScreen(
         // Diálogo para eliminación múltiple de archivos temporales
         if (showDeleteMultipleTempDialog.isNotEmpty()) {
             AlertDialog(
-                onDismissRequest = onDismissDeleteMultipleTempDialog,
+                onDismissRequest = if (isProcessingMultipleFiles) {
+                    {} // Bloquear cierre durante procesamiento
+                } else {
+                    onDismissDeleteMultipleTempDialog
+                },
                 title = { Text("Eliminar archivos temporales") },
                 text = {
-                    Text("¿Deseas eliminar ${showDeleteMultipleTempDialog.size} archivo(s) temporal(es)?")
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        when {
+                            isProcessingMultipleFiles -> {
+                                // Mostrar progreso
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                if (multipleFilesProgress != null && multipleFilesProgress.first > 0) {
+                                    Text(
+                                        "Eliminando archivo ${multipleFilesProgress.first} de ${multipleFilesProgress.second}...",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                } else {
+                                    Text(
+                                        "Preparando...",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                            }
+                            else -> {
+                                Text("¿Deseas eliminar ${showDeleteMultipleTempDialog.size} archivo(s) temporal(es)?")
+                            }
+                        }
+                    }
                 },
                 confirmButton = {
-                    Button(onClick = {
-                        onDeleteMultipleTempFiles()
-                        // Limpiar la selección después de confirmar la eliminación
-                        vaultSelectionMode = false
-                        vaultSelectedFiles = emptySet()
-                    }) {
+                    Button(
+                        onClick = {
+                            onDeleteMultipleTempFiles()
+                            // NO limpiar la selección aquí - se limpiará cuando termine el proceso
+                        },
+                        enabled = !isProcessingMultipleFiles
+                    ) {
                         Text("Eliminar")
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = onDismissDeleteMultipleTempDialog) {
+                    TextButton(
+                        onClick = onDismissDeleteMultipleTempDialog,
+                        enabled = !isProcessingMultipleFiles
+                    ) {
                         Text("Cancelar")
                     }
                 }

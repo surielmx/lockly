@@ -77,6 +77,8 @@ class MainActivity : ComponentActivity() {
                 val showDeleteTempDialog by viewModel.showDeleteTempDialog.collectAsState()
                 val showDecryptMultipleDialog by viewModel.showDecryptMultipleDialog.collectAsState()
                 val showDeleteMultipleTempDialog by viewModel.showDeleteMultipleTempDialog.collectAsState()
+                val isProcessingMultipleFiles by viewModel.isProcessingMultipleFiles.collectAsState()
+                val multipleFilesProgress by viewModel.multipleFilesProgress.collectAsState()
 
                 LaunchedEffect(Unit) {
                     viewModel.snackbarMessage.collectLatest { message ->
@@ -137,7 +139,9 @@ class MainActivity : ComponentActivity() {
                         onShowDeleteMultipleTempDialog = { files -> viewModel.showDeleteMultipleTempDialog(files) },
                         onDeleteMultipleTempFiles = { viewModel.confirmDeleteMultipleTempFiles() },
                         onDismissDeleteMultipleTempDialog = viewModel::dismissDeleteMultipleTempDialog,
-                        encryptingFiles = encryptingFiles
+                        encryptingFiles = encryptingFiles,
+                        isProcessingMultipleFiles = isProcessingMultipleFiles,
+                        multipleFilesProgress = multipleFilesProgress
                     )
                 } else {
                     PermissionRequestScreen {

@@ -90,6 +90,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _showDeleteMultipleTempDialog = MutableStateFlow<List<File>>(emptyList())
     val showDeleteMultipleTempDialog = _showDeleteMultipleTempDialog.asStateFlow()
 
+    // --- Progress States for Multiple Operations ---
+    private val _isProcessingMultipleFiles = MutableStateFlow(false)
+    val isProcessingMultipleFiles = _isProcessingMultipleFiles.asStateFlow()
+
+    private val _multipleFilesProgress = MutableStateFlow<Pair<Int, Int>?>(null) // Pair(current, total)
+    val multipleFilesProgress = _multipleFilesProgress.asStateFlow()
+
     // --- UI Events Channel ---
     private val _snackbarMessage = MutableSharedFlow<String>()
     val snackbarMessage = _snackbarMessage.asSharedFlow()
@@ -783,36 +790,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
 
-            Log.d(TAG, "Starting decryption of ${files.size} files")
+            // Iniciar indicador de progreso
+            val totalFiles = files.size
+            _isProcessingMultipleFiles.value = true
+            _multipleFilesProgress.value = Pair(0, totalFiles) // Inicializar en 0
+            Log.d(TAG, "isProcessingMultipleFiles set to TRUE, progress initialized: 0/$totalFiles")
+
+            // Pequeño delay para permitir que la UI se actualice
+            kotlinx.coroutines.delay(200)
+
+            Log.d(TAG, "Starting decryption of $totalFiles files")
             var successCount = 0
             var failedCount = 0
 
-            files.forEach { file ->
+            files.forEachIndexed { index, file ->
+                // Actualizar progreso
+                val currentProgress = Pair(index + 1, totalFiles)
+                _multipleFilesProgress.value = currentProgress
+                Log.d(TAG, "Progress updated: ${currentProgress.first}/${currentProgress.second}")
+
                 _creatingTempFile.update { it + file.absolutePath }
                 try {
-                    val tempFile = File(publicTempDir, VaultManager.getOriginalFileName(file))
+                    // Ejecutar operación de I/O en dispatcher IO
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        val tempFile = File(publicTempDir, VaultManager.getOriginalFileName(file))
 
-                    Log.d(TAG, "Descifrando archivo: ${file.name} -> ${tempFile.absolutePath}")
+                        Log.d(TAG, "Descifrando archivo: ${file.name} -> ${tempFile.absolutePath}")
 
-                    // Descifrar el archivo usando la contraseña
-                    file.inputStream().use { inputStream ->
-                        FileOutputStream(tempFile).use { outputStream ->
-                            VaultManager.decryptStream(password, inputStream, outputStream)
+                        // Descifrar el archivo usando la contraseña
+                        file.inputStream().use { inputStream ->
+                            FileOutputStream(tempFile).use { outputStream ->
+                                VaultManager.decryptStream(password, inputStream, outputStream)
+                            }
                         }
+
+                        Log.d(TAG, "Archivo descifrado exitosamente. Tamaño: ${tempFile.length()} bytes")
                     }
 
-                    Log.d(TAG, "Archivo descifrado exitosamente. Tamaño: ${tempFile.length()} bytes")
-
-                    // Escanear el archivo con MediaScanner
+                    // Escanear el archivo con MediaScanner (en el Main thread)
                     MediaScannerConnection.scanFile(
                         context,
-                        arrayOf(tempFile.absolutePath),
-                        arrayOf(MimeTypeMap.getSingleton().getMimeTypeFromExtension(tempFile.extension))
+                        arrayOf(File(publicTempDir, VaultManager.getOriginalFileName(file)).absolutePath),
+                        arrayOf(MimeTypeMap.getSingleton().getMimeTypeFromExtension(
+                            VaultManager.getOriginalFileName(file).substringAfterLast('.')
+                        ))
                     ) { _, uri ->
-                        Log.i(TAG, "MediaScanner completed for ${tempFile.name}. URI: $uri")
+                        Log.i(TAG, "MediaScanner completed for ${VaultManager.getOriginalFileName(file)}. URI: $uri")
                     }
 
-                    _inUseFiles.update { it + tempFile.name }
+                    _inUseFiles.update { it + VaultManager.getOriginalFileName(file) }
                     _recentlyEncryptedFiles.update { it - file.absolutePath }
                     successCount++
 
@@ -823,6 +849,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _creatingTempFile.update { it - file.absolutePath }
                 }
             }
+
+            // Limpiar estado de progreso
+            Log.d(TAG, "Cleaning up progress state")
+            _isProcessingMultipleFiles.value = false
+            _multipleFilesProgress.value = null
+            Log.d(TAG, "isProcessingMultipleFiles set to FALSE")
 
             // Mostrar mensaje de resultado
             if (successCount > 0 && failedCount == 0) {
@@ -856,19 +888,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val files = _showDeleteMultipleTempDialog.value
         if (files.isNotEmpty()) {
             viewModelScope.launch(coroutineExceptionHandler) {
+                // Iniciar indicador de progreso
+                val totalFiles = files.size
+                _isProcessingMultipleFiles.value = true
+                _multipleFilesProgress.value = Pair(0, totalFiles) // Inicializar en 0
+                Log.d(TAG, "isProcessingMultipleFiles set to TRUE for deletion, progress initialized: 0/$totalFiles")
+
+                // Pequeño delay para permitir que la UI se actualice
+                kotlinx.coroutines.delay(200)
+
                 var deletedCount = 0
-                for (file in files) {
+
+                files.forEachIndexed { index, file ->
+                    // Actualizar progreso
+                    _multipleFilesProgress.value = Pair(index + 1, totalFiles)
+                    Log.d(TAG, "Delete progress updated: ${index + 1}/$totalFiles")
+
                     try {
-                        val tempFile = File(publicTempDir, VaultManager.getOriginalFileName(file))
-                        if (tempFile.exists() && tempFile.delete()) {
-                            deletedCount++
-                            _inUseFiles.update { it - tempFile.name }
+                        // Ejecutar operación de I/O en dispatcher IO
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            val tempFile = File(publicTempDir, VaultManager.getOriginalFileName(file))
+                            if (tempFile.exists() && tempFile.delete()) {
+                                deletedCount++
+                                _inUseFiles.update { it - tempFile.name }
+                                Log.d(TAG, "Archivo temporal eliminado: ${tempFile.name}")
+                            }
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Error al eliminar el archivo temporal: ${file.name}", e)
                     }
                 }
-                showSnackbarMessage("$deletedCount de ${files.size} archivos temporales eliminados.")
+
+                // Limpiar estado de progreso
+                _isProcessingMultipleFiles.value = false
+                _multipleFilesProgress.value = null
+
+                showSnackbarMessage("$deletedCount de $totalFiles archivos temporales eliminados.")
                 // Cerrar el diálogo después de completar la eliminación
                 _showDeleteMultipleTempDialog.value = emptyList()
             }
