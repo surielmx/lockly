@@ -57,7 +57,7 @@ data class PasswordStrength(
 
 fun validatePasswordStrength(password: String): PasswordStrength {
     if (password.length < 8) {
-        return PasswordStrength(false, 0, "Mínimo 8 caracteres", Color.Red)
+        return PasswordStrength(false, 0, "Mínimo 8 caracteres", Color(0xFFFFB4AB))
     }
 
     var score = 0
@@ -72,10 +72,10 @@ fun validatePasswordStrength(password: String): PasswordStrength {
     if (hasSpecial) score++
 
     return when {
-        score >= 4 -> PasswordStrength(true, 3, "Contraseña fuerte", Color(0xFF4CAF50))
-        score >= 3 -> PasswordStrength(true, 2, "Contraseña buena", Color(0xFF2196F3))
-        score >= 2 -> PasswordStrength(true, 1, "Contraseña débil", Color(0xFFFFA000))
-        else -> PasswordStrength(false, 0, "Contraseña muy débil", Color.Red)
+        score >= 4 -> PasswordStrength(true, 3, "Contraseña fuerte", Color(0xFFACD28E))
+        score >= 3 -> PasswordStrength(true, 2, "Contraseña buena", Color(0xFFA0CFCE))
+        score >= 2 -> PasswordStrength(true, 1, "Contraseña débil", Color(0xFFFBBF24))
+        else -> PasswordStrength(false, 0, "Contraseña muy débil", Color(0xFFFFB4AB))
     }
 }
 
