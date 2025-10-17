@@ -13,7 +13,7 @@ object ApiClient {
 
     // Base URL is configured per build variant in build.gradle.kts
     // Debug: http://192.168.1.14:3000/
-    // Release: https://api.lockly.dev/
+    // Release: https://lockly-api.onrender.com/
     private const val BASE_URL = BuildConfig.BASE_URL
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {

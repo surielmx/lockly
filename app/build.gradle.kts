@@ -26,7 +26,7 @@ android {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            buildConfigField("String", "BASE_URL", "\"https://api.lockly.dev/\"")
+            buildConfigField("String", "BASE_URL", "\"https://lockly-api.onrender.com/\"")
         }
     }
     compileOptions {
