@@ -21,7 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.core.net.toUri
 import com.developermx.lockly.screens.MainScreen
 import com.developermx.lockly.screens.PermissionRequestScreen
-import com.developermx.lockly.ui.theme.LocklyTheme
+import com.developermx.lockly.ui.theme.AppTheme
 import kotlinx.coroutines.flow.collectLatest
 
 class MainActivity : ComponentActivity() {
@@ -59,7 +59,7 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            LocklyTheme {
+            AppTheme {
                 val unencryptedFiles by viewModel.unencryptedFiles.collectAsState()
                 val vaultFiles by viewModel.vaultFiles.collectAsState()
                 val creatingTempFile by viewModel.creatingTempFile.collectAsState()
