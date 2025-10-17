@@ -407,7 +407,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val notification = NotificationCompat.Builder(getApplication(), "DownloadChannel")
                         .setContentTitle("Sincronización completada")
                         .setContentText("$successCount archivos sincronizados correctamente")
-                        .setSmallIcon(R.drawable.ic_launcher_foreground)
+                        .setSmallIcon(R.mipmap.ic_launcher)
                         .setAutoCancel(true)
                         .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                         .build()

@@ -111,7 +111,7 @@ class FileUploadWorker(
         NotificationCompat.Builder(appContext, PROGRESS_CHANNEL_ID)
             .setContentTitle("Proceso de Subida")
             .setContentText(contentText)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .setProgress(100, 0, true)
             .build()
@@ -133,7 +133,7 @@ class FileUploadWorker(
         val builder = NotificationCompat.Builder(appContext, channelId)
             .setContentTitle(title)
             .setContentText(contentText)
-            .setSmallIcon(if (isError) android.R.drawable.stat_sys_warning else R.drawable.ic_launcher_foreground)
+            .setSmallIcon(if (isError) android.R.drawable.stat_sys_warning else R.mipmap.ic_launcher)
             .setAutoCancel(true)
 
         if (isError && encryptedFilePath != null) {

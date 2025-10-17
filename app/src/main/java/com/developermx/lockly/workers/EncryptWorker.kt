@@ -77,7 +77,7 @@ class EncryptWorker(
 
     private fun createNotification(isIndeterminate: Boolean = true) = NotificationCompat.Builder(appContext, CHANNEL_ID)
         .setContentTitle("Proceso de Cifrado")
-        .setSmallIcon(R.drawable.ic_launcher_foreground)
+        .setSmallIcon(R.mipmap.ic_launcher)
         .setOngoing(true)
         .setProgress(100, 0, isIndeterminate)
         .build()
@@ -91,7 +91,7 @@ class EncryptWorker(
         val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(contentText)
-            .setSmallIcon(if (isError) android.R.drawable.stat_sys_warning else R.drawable.ic_launcher_foreground)
+            .setSmallIcon(if (isError) android.R.drawable.stat_sys_warning else R.mipmap.ic_launcher)
             .build()
         notificationManager.notify(notificationId, notification)
     }
